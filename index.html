@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mesón de Aragón · Restaurante en María de Huerva</title>
-  <meta name="description" content="Mesón de Aragón: cocina aragonesa y mediterránea en María de Huerva (Zaragoza). Menú del día, carta, terraza y celebraciones. Reservas: 976 12 42 64.">
+  <title>Mesón de Aragón · Hostal Restaurante en María de Huerva</title>
+  <meta name="description" content="Hostal Restaurante Mesón de Aragón, fundado en 1962 como Casa Federico. Comida casera, menú diario, celebraciones y habitaciones en María de Huerva (Zaragoza). Parking exclusivo para clientes. Tel. 976 124 264.">
+  <link rel="icon" href="img/logo.jpg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -12,13 +13,17 @@
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "Restaurant",
+    "@type": ["Restaurant", "LodgingBusiness"],
     "name": "Mesón de Aragón",
-    "servesCuisine": ["Aragonesa", "Mediterránea"],
-    "telephone": "+34 976 12 42 64",
+    "alternateName": "Casa Federico",
+    "foundingDate": "1962",
+    "servesCuisine": "Comida casera",
+    "telephone": "+34 976 124 264",
+    "email": "meson@mesondearagon.es",
+    "priceRange": "€",
     "address": {
       "@type": "PostalAddress",
-      "streetAddress": "Carretera de Valencia, km 15,600",
+      "streetAddress": "Carretera de Valencia, km 15,6",
       "addressLocality": "María de Huerva",
       "postalCode": "50430",
       "addressRegion": "Zaragoza",
@@ -32,17 +37,17 @@
 
 <header class="site-header" id="top">
   <div class="container nav">
-    <a href="#top" class="brand">Mesón <span>de Aragón</span></a>
+    <a href="#top" class="brand"><img src="img/logo.jpg" alt="Mesón de Aragón" width="158" height="60"></a>
     <button class="nav-toggle" aria-label="Abrir menú" aria-expanded="false">
       <span></span><span></span><span></span>
     </button>
     <nav class="nav-links">
-      <a href="#nosotros">Nosotros</a>
-      <a href="#carta">Carta</a>
-      <a href="#menu">Menú del día</a>
-      <a href="#celebraciones">Celebraciones</a>
+      <a href="#restaurante">Restaurante</a>
+      <a href="#alojamiento">Alojamiento</a>
+      <a href="#imagenes">Imágenes</a>
+      <a href="#maria-de-huerva">María de Huerva</a>
       <a href="#contacto">Contacto</a>
-      <a href="tel:+34976124264" class="btn btn-small">Reservar</a>
+      <a href="tel:+34976124264" class="btn btn-small">976 124 264</a>
     </nav>
   </div>
 </header>
@@ -50,124 +55,186 @@
 <main>
   <!-- HERO -->
   <section class="hero">
+    <div class="hero-slides" aria-hidden="true">
+      <div class="hero-slide active" style="background-image:url('img/slide-01.jpg')"></div>
+      <div class="hero-slide" style="background-image:url('img/slide-02.jpg')"></div>
+      <div class="hero-slide" style="background-image:url('img/slide-03.jpg')"></div>
+    </div>
     <div class="hero-overlay"></div>
     <div class="container hero-content">
-      <p class="eyebrow">María de Huerva · Zaragoza</p>
-      <h1>Cocina aragonesa de siempre,<br>a la orilla del camino</h1>
-      <p class="lead">Ternasco, brasa, producto de temporada y una terraza para las noches de verano.</p>
+      <p class="eyebrow">Hostal · Restaurante · Desde 1962</p>
+      <h1>Buena mesa y merecido descanso a las puertas de Zaragoza</h1>
+      <p class="lead">Fundado en 1962 como <em>Casa Federico</em>. Comida casera, cafetería y habitaciones en María de Huerva, con parking exclusivo para clientes.</p>
       <div class="hero-actions">
-        <a href="tel:+34976124264" class="btn">Llamar · 976 12 42 64</a>
-        <a href="#carta" class="btn btn-ghost">Ver la carta</a>
+        <a href="tel:+34976124264" class="btn">Reservar · 976 124 264</a>
+        <a href="#restaurante" class="btn btn-ghost">Ver menús y precios</a>
       </div>
     </div>
   </section>
 
-  <!-- NOSOTROS -->
-  <section class="section" id="nosotros">
+  <!-- HIGHLIGHTS -->
+  <section class="highlights">
+    <div class="container highlights-grid">
+      <div><strong>Desde 1962</strong><span>Más de 60 años atendiendo viajeros</span></div>
+      <div><strong>Parking exclusivo</strong><span>Turismos, camiones y autobuses</span></div>
+      <div><strong>Habitaciones</strong><span>Wifi, climatización, baño y TV</span></div>
+      <div><strong>Sin cruzar Zaragoza</strong><span>Acceso directo desde la autovía</span></div>
+    </div>
+  </section>
+
+  <!-- BIENVENIDOS -->
+  <section class="section" id="bienvenidos">
     <div class="container split">
       <div>
-        <p class="eyebrow">Nuestra casa</p>
-        <h2>Un mesón con alma de pueblo</h2>
-        <p>En el Mesón de Aragón cocinamos como se ha hecho siempre en esta tierra: sin prisas, con producto cercano y recetas que pasan de generación en generación. Desayunos para empezar la jornada, menú del día para quien va de paso y una carta pensada para compartir en familia.</p>
-        <p>Nos encontrarás en la Carretera de Valencia, a 15 minutos de Zaragoza, con aparcamiento y una amplia terraza.</p>
-        <ul class="features">
-          <li>Terraza de verano</li>
-          <li>Opciones sin gluten</li>
-          <li>Ideal para familias</li>
-          <li>Desayunos, comidas y cenas</li>
-        </ul>
+        <p class="eyebrow">Bienvenidos</p>
+        <h2>Un alto en el camino desde hace más de 60 años</h2>
+        <p>En María de Huerva, a 300 km de Madrid, Barcelona, Bilbao, San Sebastián y Valencia y sin tener que cruzar la ciudad de Zaragoza. A 1 hora del Moncayo y a hora y media del Monasterio de Piedra y del Pirineo, tiene la posibilidad de un grato descanso en su viaje de trabajo o placer, ya sea en nuestras cómodas habitaciones o disfrutando de la buena mesa.</p>
+        <p>Con parking privado exterior en un entorno seguro y a poca distancia de la Feria de Muestras y de los polígonos industriales del área de Zaragoza, somos la mejor opción para un merecido descanso en su viaje o estancia en la zona.</p>
+        <p class="muted">Durante todos estos años hemos ampliado nuestras instalaciones, mejorado nuestro equipamiento y aprendido de nuestros clientes, manteniendo siempre una gran calidad de servicio a precios asequibles.</p>
       </div>
-      <div class="photo photo-a" role="img" aria-label="Interior del mesón"></div>
+      <div class="photo-stack">
+        <img src="img/exterior-04.jpg" alt="Fachada del Mesón de Aragón" loading="lazy">
+        <img src="img/destacada-cafeteria.jpg" alt="Barra de la cafetería" loading="lazy">
+      </div>
     </div>
   </section>
 
-  <!-- CARTA -->
-  <section class="section section-alt" id="carta">
+  <!-- RESTAURANTE -->
+  <section class="section section-alt" id="restaurante">
     <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">Carta</p>
-        <h2>Para abrir boca y para quedarse</h2>
-        <p class="muted">Platos y precios orientativos: pendientes de confirmar con la carta actual.</p>
-      </div>
-
-      <div class="menu-tabs" role="tablist">
-        <button class="tab active" data-tab="entrantes" role="tab">Entrantes</button>
-        <button class="tab" data-tab="carnes" role="tab">Carnes</button>
-        <button class="tab" data-tab="pescados" role="tab">Pescados</button>
-        <button class="tab" data-tab="postres" role="tab">Postres</button>
-      </div>
-
-      <div class="menu-panel active" id="entrantes">
-        <div class="dish"><h3>Migas de pastor con uva</h3><span class="price">--,-- €</span><p>Con longaniza de Graus y huevo frito.</p></div>
-        <div class="dish"><h3>Borrajas con patata</h3><span class="price">--,-- €</span><p>Aliñadas con aceite de oliva del Bajo Aragón.</p></div>
-        <div class="dish"><h3>Croquetas caseras</h3><span class="price">--,-- €</span><p>De jamón, cremosas por dentro.</p></div>
-        <div class="dish"><h3>Ensalada de la huerta</h3><span class="price">--,-- €</span><p>Tomate, cebolla tierna, olivas y ventresca.</p></div>
-      </div>
-      <div class="menu-panel" id="carnes">
-        <div class="dish"><h3>Ternasco de Aragón asado</h3><span class="price">--,-- €</span><p>Con patatas a lo pobre.</p></div>
-        <div class="dish"><h3>Chuletillas a la brasa</h3><span class="price">--,-- €</span><p>De ternasco con IGP.</p></div>
-        <div class="dish"><h3>Entrecot de vaca</h3><span class="price">--,-- €</span><p>A la brasa, con pimientos asados.</p></div>
-        <div class="dish"><h3>Pollo al chilindrón</h3><span class="price">--,-- €</span><p>Receta tradicional aragonesa.</p></div>
-      </div>
-      <div class="menu-panel" id="pescados">
-        <div class="dish"><h3>Bacalao ajoarriero</h3><span class="price">--,-- €</span><p>Con tomate, pimiento y huevo.</p></div>
-        <div class="dish"><h3>Merluza a la romana</h3><span class="price">--,-- €</span><p>Con pimientos del piquillo.</p></div>
-        <div class="dish"><h3>Calamares a la plancha</h3><span class="price">--,-- €</span><p>Con ajo y perejil.</p></div>
-      </div>
-      <div class="menu-panel" id="postres">
-        <div class="dish"><h3>Melocotón con vino</h3><span class="price">--,-- €</span><p>Melocotón de Calanda.</p></div>
-        <div class="dish"><h3>Tarta de queso casera</h3><span class="price">--,-- €</span><p>Horneada en casa.</p></div>
-        <div class="dish"><h3>Natillas de la abuela</h3><span class="price">--,-- €</span><p>Con galleta y canela.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- MENU DEL DIA -->
-  <section class="section" id="menu">
-    <div class="container split reverse">
-      <div class="photo photo-b" role="img" aria-label="Plato del menú del día"></div>
-      <div>
-        <p class="eyebrow">De lunes a viernes</p>
-        <h2>Menú del día</h2>
-        <p>Primero, segundo, postre, pan y bebida. Cambiamos los platos cada día según el mercado.</p>
-        <div class="price-card">
-          <span class="price-big">--,-- €</span>
-          <span class="muted">IVA incluido · precio pendiente de confirmar</span>
+      <div class="split">
+        <div>
+          <p class="eyebrow">Restaurante</p>
+          <h2>Una merecida alimentación</h2>
+          <p>Disfrute de la mejor comida casera en comedores perfectamente climatizados, en un ambiente relajante y agradable. Menús similares a la carta, con un amplio surtido de primeros, segundos y postres a elegir, elaborados con género de primera calidad.</p>
+          <p>Así conseguimos que uno de los momentos más agradables del día se convierta en un momento para degustar y disfrutar, gracias a nuestro equipamiento y a nuestro personal experimentado.</p>
         </div>
-        <p class="muted">Fines de semana y festivos: menú especial. Pregúntanos por teléfono.</p>
+        <img class="photo" src="img/encabezado-restaurante.jpg" alt="Comedor del restaurante" loading="lazy">
+      </div>
+
+      <div class="prices">
+        <article class="price-card">
+          <h3>Menú diario</h3>
+          <p class="when">Laborables, de lunes a viernes</p>
+          <p class="amount">14 <span>€ / persona</span></p>
+          <ul>
+            <li>16–20 primeros, 16–20 segundos y 16–20 postres a elegir</li>
+            <li>Cena del viernes: 16 €</li>
+            <li>Incluye pan, agua, vino o gaseosa</li>
+          </ul>
+        </article>
+        <article class="price-card featured">
+          <h3>Menú festivos</h3>
+          <p class="when">Sábados, domingos y festivos</p>
+          <p class="amount">28 <span>€ / persona</span></p>
+          <ul>
+            <li>16–20 primeros, 16–20 segundos y 16–20 postres a elegir</li>
+            <li>Cena del domingo: 12 €</li>
+            <li>Incluye pan, agua, vino o gaseosa</li>
+          </ul>
+        </article>
+        <article class="price-card">
+          <h3>Eventos y celebraciones</h3>
+          <p class="when">Banquetes y ocasiones especiales</p>
+          <p class="amount"><small>de</small> 26 <small>a</small> 40 <span>€ / persona</span></p>
+          <ul>
+            <li>Precio por cubierto, IVA incluido</li>
+            <li>Menús a medida para su evento</li>
+            <li>Quedará satisfecho con la calidad, el servicio y el precio</li>
+          </ul>
+        </article>
+      </div>
+      <div class="center"><a href="#contacto" class="btn">Consultar o reservar</a></div>
+    </div>
+  </section>
+
+  <!-- ALOJAMIENTO -->
+  <section class="section" id="alojamiento">
+    <div class="container split reverse">
+      <img class="photo" src="img/encabezado-habitaciones.jpg" alt="Habitación doble" loading="lazy">
+      <div>
+        <p class="eyebrow">Alojamiento</p>
+        <h2>Un merecido descanso</h2>
+        <p>Viajantes, transportistas o visitantes de paso: todos pueden obtener, por un precio muy económico, estancia y descanso con las mejores garantías.</p>
+        <ul class="features">
+          <li>Wifi</li>
+          <li>Habitaciones climatizadas</li>
+          <li>Baño individual</li>
+          <li>Televisión TDT</li>
+        </ul>
+        <div class="room-prices">
+          <div><span>Individual</span><strong>45 €</strong></div>
+          <div><span>Doble (2 pers.)</span><strong>55 €</strong></div>
+        </div>
+        <a href="tel:+34976124264" class="btn">Reservar habitación</a>
       </div>
     </div>
   </section>
 
-  <!-- CELEBRACIONES -->
-  <section class="section section-dark" id="celebraciones">
+  <!-- IMAGENES -->
+  <section class="section section-dark" id="imagenes">
     <div class="container">
       <div class="section-head">
-        <p class="eyebrow">Celebraciones</p>
-        <h2>Tu evento, en nuestra mesa</h2>
+        <p class="eyebrow">Imágenes</p>
+        <h2>Conozca nuestras instalaciones</h2>
       </div>
-      <div class="cards">
-        <article class="card"><h3>Comidas de empresa</h3><p>Menús cerrados para grupos y cenas de Navidad.</p></article>
-        <article class="card"><h3>Comuniones y bautizos</h3><p>Salón y terraza para celebraciones familiares.</p></article>
-        <article class="card"><h3>Cumpleaños</h3><p>Te ayudamos a preparar el menú a tu medida.</p></article>
+      <div class="gallery-tabs" role="tablist"></div>
+      <div class="gallery" id="gallery"></div>
+    </div>
+  </section>
+
+  <!-- MARIA DE HUERVA -->
+  <section class="section" id="maria-de-huerva">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">María de Huerva y alrededores</p>
+        <h2>Mucho que ver, a muy poca distancia</h2>
+        <p class="muted">Una población tranquila muy cerca de Zaragoza, con todos los servicios: centro de salud y urgencias, autobús, gasolinera, supermercado, piscinas, parques, biblioteca, equitación y mucho más.</p>
       </div>
-      <div class="center"><a href="#contacto" class="btn">Pedir presupuesto</a></div>
+      <div class="places">
+        <article class="place">
+          <img src="img/encabezado-maria-de-huerva.jpg" alt="Castillo sobre el acantilado de Muel" loading="lazy">
+          <div><h3>Parque municipal de Muel</h3><p>A 14 km, al pie de un acantilado natural, con un dique romano junto a la ermita de la Virgen de la Fuente y las ruinas de un castillo musulmán.</p></div>
+        </article>
+        <article class="place">
+          <img src="img/ceramica.jpg" alt="Cerámica de Muel" loading="lazy">
+          <div><h3>Cerámica de Muel</h3><p>Herencia de los alfareros moriscos que poblaron Muel hasta el siglo XVII, muy valorada por los expertos.</p></div>
+        </article>
+        <article class="place">
+          <img src="img/goya.jpg" alt="Francisco de Goya" loading="lazy">
+          <div><h3>Casa natal de Goya</h3><p>En Fuendetodos, a pocos kilómetros. De camino, no se pierda el Jardín Botánico de Jaulín, Premio Nacional de Medio Ambiente.</p></div>
+        </article>
+        <article class="place">
+          <img src="img/carinena.jpg" alt="Vinos de Cariñena" loading="lazy">
+          <div><h3>Ruta del vino de Cariñena</h3><p>Todos los municipios de la D.O. Cariñena muy cerca. Visitas concertadas para grupos desde nuestro establecimiento (entre semana).</p></div>
+        </article>
+        <article class="place">
+          <img src="img/medieval.jpg" alt="Recreación histórica" loading="lazy">
+          <div><h3>Historia viva</h3><p>Recreación anual de la batalla histórica en María de Huerva, organizada por Almarya, y el poblado celta de Botorrita.</p></div>
+        </article>
+        <article class="place">
+          <img src="img/ciclismo.jpg" alt="Ciclismo de montaña" loading="lazy">
+          <div><h3>Naturaleza y deporte</h3><p>Rutas de ciclismo, senderismo y motociclismo de montaña hasta Fuendetodos, y paseos a caballo en la Yeguada de San Antonio.</p></div>
+        </article>
+      </div>
     </div>
   </section>
 
   <!-- CONTACTO -->
-  <section class="section" id="contacto">
-    <div class="container split">
+  <section class="section section-alt" id="contacto">
+    <div class="container split top">
       <div>
-        <p class="eyebrow">Visítanos</p>
-        <h2>Contacto y reservas</h2>
+        <p class="eyebrow">Contacto</p>
+        <h2>Información y reservas</h2>
         <dl class="info">
           <dt>Dirección</dt>
-          <dd>Carretera de Valencia, km 15,600<br>50430 María de Huerva (Zaragoza)</dd>
+          <dd>Carretera de Valencia, km 15,6<br>50430 María de Huerva (Zaragoza)</dd>
           <dt>Teléfono</dt>
-          <dd><a href="tel:+34976124264">976 12 42 64</a></dd>
-          <dt>Horario</dt>
-          <dd>Pendiente de confirmar<br><span class="muted">Ejemplo: lun–dom, 7:00 a 23:00</span></dd>
+          <dd><a href="tel:+34976124264">976 124 264</a></dd>
+          <dt>Email</dt>
+          <dd><a href="mailto:meson@mesondearagon.es">meson@mesondearagon.es</a></dd>
+          <dt>Parking</dt>
+          <dd>Exclusivo para clientes</dd>
         </dl>
 
         <form class="form" id="reserva-form">
@@ -176,18 +243,33 @@
             <label>Teléfono<input name="telefono" type="tel" required></label>
           </div>
           <div class="form-row">
+            <label>Quiero reservar
+              <select name="tipo">
+                <option>Mesa en el restaurante</option>
+                <option>Habitación</option>
+                <option>Evento o celebración</option>
+              </select>
+            </label>
             <label>Fecha<input name="fecha" type="date" required></label>
-            <label>Personas<input name="personas" type="number" min="1" value="2" required></label>
           </div>
-          <label>Comentarios<textarea name="comentarios" rows="3"></textarea></label>
-          <button class="btn" type="submit">Solicitar reserva</button>
+          <label>Personas / comentarios<textarea name="comentarios" rows="3"></textarea></label>
+          <button class="btn" type="submit">Enviar solicitud</button>
           <p class="form-msg" aria-live="polite"></p>
         </form>
       </div>
-      <div class="map">
-        <iframe title="Mapa Mesón de Aragón"
-          src="https://www.google.com/maps?q=Mes%C3%B3n+de+Arag%C3%B3n+Mar%C3%ADa+de+Huerva&output=embed"
-          loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+
+      <div>
+        <div class="map">
+          <iframe title="Mapa Mesón de Aragón"
+            src="https://www.google.com/maps?q=Mes%C3%B3n+de+Arag%C3%B3n,+Carretera+de+Valencia+km+15,6,+Mar%C3%ADa+de+Huerva&output=embed"
+            loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </div>
+        <div class="directions">
+          <h3>Cómo llegar</h3>
+          <p><strong>Desde Madrid (A-2):</strong> antes de La Muela, tome el desvío hacia Muel hasta la Autovía Mudéjar; en dirección Zaragoza, salida de Botorrita con acceso directo a María de Huerva.</p>
+          <p><strong>Desde Valencia y Teruel:</strong> por la Autovía Mudéjar, acceso directo, no tiene pérdida.</p>
+          <p><strong>Desde Barcelona, Huesca o Castellón:</strong> no es necesario entrar en Zaragoza. Siga dirección Teruel hasta la salida Cadrete–María de Huerva.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -196,19 +278,26 @@
 <footer class="site-footer">
   <div class="container footer-grid">
     <div>
-      <a href="#top" class="brand">Mesón <span>de Aragón</span></a>
-      <p class="muted">Cocina aragonesa en María de Huerva.</p>
+      <p class="footer-brand">Mesón de Aragón</p>
+      <p class="muted">Hostal Restaurante · Fundado en 1962 como Casa Federico</p>
     </div>
     <div>
-      <p>Ctra. de Valencia, km 15,600 · 50430 María de Huerva</p>
-      <p><a href="tel:+34976124264">976 12 42 64</a></p>
+      <p>Ctra. de Valencia, km 15,6 · 50430 María de Huerva (Zaragoza)</p>
+      <p><a href="tel:+34976124264">976 124 264</a> · <a href="mailto:meson@mesondearagon.es">meson@mesondearagon.es</a></p>
     </div>
     <div class="legal">
       <a href="#">Aviso legal</a> · <a href="#">Privacidad</a> · <a href="#">Cookies</a>
     </div>
   </div>
-  <p class="container copy">© <span id="year"></span> Mesón de Aragón</p>
+  <p class="container copy">© <span id="year"></span> Mesón de Aragón. Todos los derechos reservados.</p>
 </footer>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" aria-label="Cerrar">×</button>
+  <button class="lb-prev" aria-label="Anterior">‹</button>
+  <img alt="">
+  <button class="lb-next" aria-label="Siguiente">›</button>
+</div>
 
 <script src="js/main.js"></script>
 </body>
