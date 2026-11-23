@@ -98,6 +98,13 @@ select, input[type=number], input[type=password], input:not([type]) {
 }
 button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
 
+.livekey { background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+.livekey p { margin: 0 0 8px; }
+.livekey .addtoken { margin-top: 0; }
+.marketstate { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+.marketstate b.open { color: var(--up); }
+.marketstate b.closed { color: var(--warn); }
+
 /* Alertas */
 .alerthead { display: flex; justify-content: space-between; align-items: center; }
 .banner { display: flex; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }

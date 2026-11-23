@@ -87,6 +87,14 @@
       </select>
       <input id="stkSearch" placeholder="Buscar…" autocomplete="off">
     </div>
+    <form class="livekey" id="liveKeyForm" hidden>
+      <p><b>Precios en tiempo real</b>: pega tu clave gratis de Finnhub (finnhub.io → Get free API key). Se guarda solo en este móvil.</p>
+      <div class="addtoken">
+        <input id="liveKeyInput" type="password" placeholder="Clave de Finnhub" autocomplete="off">
+        <button type="submit">Activar</button>
+      </div>
+    </form>
+    <p class="marketstate" id="marketState"></p>
     <div class="chips" id="stkGroups"></div>
     <p class="hint" id="stkUpdated"></p>
     <div class="list" id="stkList"><div class="empty">Cargando bolsa…</div></div>
@@ -162,6 +170,7 @@
       </div>
       <p class="hint" id="savedMsg" hidden>Guardado.</p>
     </form>
+    <p class="hint small" id="appVersion"></p>
     <p class="hint small">Datos: DexScreener, GeckoTerminal, CoinGecko y Twelve Data (bolsa). Herramienta informativa, no es consejo financiero.</p>
   </section>
 </main>

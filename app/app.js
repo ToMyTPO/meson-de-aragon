@@ -537,7 +537,21 @@
     $("#topList").innerHTML = list.length ? list.map(tokenRow).join("") : `<div class="empty">Sin datos de CoinGecko todavía.</div>`;
   }
 
+  // Sesión de Wall Street (9:30–16:00 hora de Nueva York, lunes a viernes)
+  function usMarket() {
+    const ny = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const d = ny.getDay(), m = ny.getHours() * 60 + ny.getMinutes();
+    const open = d >= 1 && d <= 5 && m >= 570 && m < 960;
+    let mins = null;
+    if (!open && d >= 1 && d <= 5 && m < 570) mins = 570 - m;
+    return { open, mins };
+  }
+
   function renderStocks() {
+    $("#liveKeyForm").hidden = !!S.finnhubKey;
+    const mk = usMarket();
+    $("#marketState").innerHTML = mk.open ? `Wall Street: <b class="open">abierto</b>`
+      : `Wall Street: <b class="closed">cerrado</b>${mk.mins != null ? ` · abre en ${Math.floor(mk.mins / 60)} h ${mk.mins % 60} min (15:30 en España)` : " · se muestra el último cierre"}`;
     const STK_GROUPS = ["Todos", ...new Set(state.stocks.map((t) => t.group))];
     $("#stkGroups").innerHTML = STK_GROUPS.map((g) => `<button class="chip${g === state.stkGroup ? " on" : ""}" data-g="${esc(g)}">${esc(g)}</button>`).join("");
     let list = state.stocks.slice();
@@ -954,6 +968,16 @@ ${JSON.stringify(data)}`;
       const b = e.target.closest(".chip"); if (!b) return;
       state.stkGroup = b.dataset.g; renderStocks();
     });
+    $("#liveKeyForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const k = $("#liveKeyInput").value.trim();
+      if (!k) return;
+      S.finnhubKey = k; store.set("settings", S);
+      $("#liveKeyInput").value = "";
+      lastQuoteRound = 0;
+      toast("Clave guardada: precios en vivo activados");
+      refreshQuotes(); renderStocks();
+    });
     $("#stkList").addEventListener("click", (e) => {
       const row = e.target.closest(".row-t"); if (!row) return;
       const t = findToken(row.dataset.id); if (t) openDetail(t);
@@ -1021,6 +1045,7 @@ ${JSON.stringify(data)}`;
   // ------------------------------------------------------------ arranque
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => { });
   bind();
+  try { $("#appVersion").textContent = "Versión de la app: 12"; } catch { }
   renderAll();
   tick();
   schedule();
