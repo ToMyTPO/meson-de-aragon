@@ -13,7 +13,8 @@ Dos piezas que trabajan juntas:
 | Pestaña | Qué hace |
 |---|---|
 | **Radar** | Memecoins nuevos, promocionados y en tendencia (Solana, Base, Ethereum, BNB), actualizados cada 30 s. Marca pumps, dumps, picos de volumen y riesgos (token nuevo, liquidez baja, más ventas que compras). Barra verde/roja = compras vs ventas 1 h. |
-| **Top** | Las 100 mayores criptomonedas con cambios de 1 h, 24 h y 7 d. |
+| **Cripto** | Las 100 mayores criptomonedas con cambios de 1 h, 24 h y 7 d. |
+| **Bolsa** | Índices (S&P 500, Nasdaq 100, Dow Jones, IBEX 35, DAX…, futuros ES y NQ, VIX), acciones de EE. UU. y España, oro, plata, petróleo, euro/dólar y ETF. Avisa cuando un índice se mueve ±1,5% en el día o una acción ±4%. Datos de Yahoo Finance renovados cada 15 min en horario de mercado (con 15–30 min de retraso). Para añadir o quitar valores, edita `bolsa.json` (símbolos de Yahoo Finance) o pídemelo. |
 | **Alertas** | Historial de todo lo que ha saltado. Suena y manda notificación. |
 | **Ajustes** | Umbrales de subida/bajada, filtros anti-basura, sonido, notificaciones y API key de Claude. |
 
