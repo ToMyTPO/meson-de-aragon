@@ -147,6 +147,11 @@
         <label class="row"><span>Acciones y ETF ≥ ±%</span><input type="number" id="s-stk" step="0.1"></label>
       </fieldset>
       <fieldset>
+        <legend>Bolsa en vivo (opcional)</legend>
+        <p class="hint">Con una clave gratis de Finnhub (finnhub.io → Get free API key) los precios de tus acciones se actualizan cada ~15 s en horario de mercado. La clave se guarda solo en este dispositivo.</p>
+        <label class="col"><span>Clave de Finnhub</span><input type="password" id="s-finnhubKey" placeholder="tu clave de Finnhub" autocomplete="off"></label>
+      </fieldset>
+      <fieldset>
         <legend>Análisis con IA (opcional)</legend>
         <p class="hint">Con una API key de Anthropic, el botón «Análisis IA» pide a Claude un análisis completo del token. La key se guarda solo en este dispositivo. Sin key puedes usar «Copiar para Claude» y pegarlo en la app de Claude.</p>
         <label class="col"><span>API key</span><input type="password" id="s-apiKey" placeholder="sk-ant-…" autocomplete="off"></label>
