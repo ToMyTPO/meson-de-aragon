@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+estado_alertas.json
+estado_alertas.json.tmp
+.env
