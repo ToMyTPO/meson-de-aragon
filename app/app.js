@@ -65,12 +65,13 @@
 
   // ------------------------------------------------------------ ajustes
   const DEFAULTS = {
-    chain: "solana", refreshSec: 30, notify: true, sound: true, cooldownMin: 60,
+    chain: "solana", refreshSec: 10, notify: true, sound: true, cooldownMin: 60,
     up5m: 25, up1h: 60, dn5m: -25, dn1h: -40, volX: 5, vol5mMin: 10000,
     liqMin: 15000, vol1hMin: 10000, ageMinH: 1,
     top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, earlyMin: 70, apiKey: "",
   };
   let S = Object.assign({}, DEFAULTS, store.get("settings", {}));
+  if (!store.get("migr10", false)) { if (S.refreshSec === 30) S.refreshSec = 10; store.set("migr10", true); store.set("settings", S); }
   let watch = store.get("watch", []); // [{chain, address, symbol}]
   let alerts = store.get("alerts", []);
   let cooldown = store.get("cooldown", {});
@@ -146,9 +147,14 @@
   const passFilters = (t) => isWatched(t) || (
     (t.liq || 0) >= S.liqMin && (t.vol1h || 0) >= S.vol1hMin && (t.ageH == null || t.ageH >= S.ageMinH));
 
+  // Descubrir tokens cuesta más peticiones y cambia despacio: cada 60 s. Los precios, en cada ciclo.
+  let disc = { chain: null, addrs: [], ts: 0 };
   async function refreshRadar() {
     const chain = S.chain;
-    const addrs = await discover(chain);
+    if (disc.chain !== chain || Date.now() - disc.ts > 60000 || !disc.addrs.length) {
+      disc = { chain, addrs: await discover(chain), ts: Date.now() };
+    }
+    const addrs = disc.addrs.slice();
     watch.filter((w) => w.chain === chain).forEach((w) => { if (!addrs.includes(w.address)) addrs.push(w.address); });
     let tokens = await pairsFor(chain, addrs);
     // Tokens de mi lista en otras redes
@@ -462,8 +468,9 @@
     busy = true;
     try {
       await refreshRadar();
-      if (cycle % 4 === 0) await refreshTop().catch((e) => console.warn("CoinGecko", e));
-      if (cycle % 2 === 0) await refreshStocks().catch((e) => { state.stocksErr = e.message; });
+      const every = (sec) => cycle % Math.max(1, Math.round(sec / Math.max(5, S.refreshSec))) === 0;
+      if (every(60)) await refreshTop().catch((e) => console.warn("CoinGecko", e));
+      if (every(60)) await refreshStocks().catch((e) => { state.stocksErr = e.message; });
       state.lastOk = Date.now(); state.lastErr = null;
     } catch (e) {
       state.lastErr = e.message || String(e);
@@ -475,7 +482,7 @@
   }
   function schedule() {
     clearInterval(timer);
-    timer = setInterval(tick, Math.max(15, S.refreshSec) * 1000);
+    timer = setInterval(tick, Math.max(5, S.refreshSec) * 1000);
   }
   setInterval(renderLive, 5000);
 
@@ -504,6 +511,7 @@
     document.body.style.overflow = "";
     state.detail = null;
     if (state.chart) { state.chart.remove(); state.chart = null; }
+    state.series = null;
   }
 
   function refreshDetailHeader() {
@@ -607,15 +615,18 @@
     const priceFormat = { type: "price", precision: decimals, minMove: Math.pow(10, -decimals) };
     const cs = chart.addCandlestickSeries({ upColor: c("--up"), downColor: c("--down"), borderVisible: false, wickUpColor: c("--up"), wickDownColor: c("--down"), priceFormat });
     cs.setData(candles);
+    state.series = { cs, vs: null, lines: [] };
     if (candles.some((k) => k.volume > 0)) {
       const vs = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
       vs.setData(candles.map((k) => ({ time: k.time, value: k.volume, color: (k.close >= k.open ? c("--up") : c("--down")) + "66" })));
+      state.series.vs = vs;
     }
     if (res) {
       const line = (vals, color) => {
         const s = chart.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat });
         s.setData(candles.map((k, i) => ({ time: k.time, value: vals[i] })));
+        state.series.lines.push(s);
       };
       line(res.series.ema9, c("--accent"));
       line(res.series.ema21, c("--warn"));
@@ -625,6 +636,30 @@
     chart.timeScale().fitContent();
     state.chart = chart;
   }
+
+  // Actualiza velas e indicadores del token abierto sin redibujar el gráfico
+  async function liveCandles() {
+    const t = state.detail, tf = state.tf;
+    if (!t || !state.chart || !state.series || document.hidden || busyLive) return;
+    busyLive = true;
+    try {
+      const candles = await fetchCandles(t, tf);
+      if (state.detail !== t || state.tf !== tf || !candles.length || !state.series) return;
+      const css = getComputedStyle(document.documentElement), c = (n) => css.getPropertyValue(n).trim();
+      state.candles = candles;
+      state.series.cs.setData(candles);
+      if (state.series.vs) state.series.vs.setData(candles.map((k) => ({ time: k.time, value: k.volume, color: (k.close >= k.open ? c("--up") : c("--down")) + "66" })));
+      const res = A.analyze(candles, { buys1h: t.buys1h, sells1h: t.sells1h, liquidity: t.liq, mcap: t.mcap, ageH: t.ageH, change24h: t.ch.h24 });
+      if (res) {
+        state.reading = res;
+        [res.series.ema9, res.series.ema21].forEach((vals, i) => state.series.lines[i]?.setData(candles.map((k, j) => ({ time: k.time, value: vals[j] }))));
+        renderReading(res, tf);
+      }
+    } catch (e) { console.warn("velas en vivo", e); }
+    finally { busyLive = false; }
+  }
+  let busyLive = false;
+  setInterval(() => { if (state.detail && state.detail.kind !== "stk") liveCandles(); }, 15000);
 
   function renderReading(r, tf) {
     if (!r) { $("#reading").innerHTML = `<p class="muted">Pocas velas para estimar (mínimo 20). Prueba otra temporalidad.</p>`; return; }
