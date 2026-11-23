@@ -1,0 +1,42 @@
+name: Alertas cripto
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # cada 5 minutos (GitHub a veces lo retrasa unos minutos)
+  workflow_dispatch: {}      # botón "Run workflow" para probarlo a mano
+
+concurrency:
+  group: alertas
+  cancel-in-progress: false
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Recordar qué avisos ya se enviaron para no repetirlos
+      - name: Restaurar estado
+        uses: actions/cache/restore@v4
+        with:
+          path: estado_alertas.json
+          key: estado-${{ github.run_id }}
+          restore-keys: estado-
+
+      - name: Revisar mercado
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m alertas --once
+
+      - name: Guardar estado
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: estado_alertas.json
+          key: estado-${{ github.run_id }}

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>BeyondVision</title>
+<meta name="description" content="Radar de memecoins y criptomonedas en vivo con alertas y análisis.">
+<meta name="theme-color" content="#0a0e1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BeyondVision">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="16" cy="16" r="5" fill="currentColor"/><path d="M16 3v5M16 24v5M3 16h5M24 16h5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+    <span>BeyondVision</span>
+  </div>
+  <div class="live" id="live"><span class="dot"></span><span id="liveText">conectando…</span></div>
+</header>
+
+<main id="main">
+  <!-- RADAR -->
+  <section class="view" id="view-radar">
+    <div class="toolbar">
+      <select id="chain" aria-label="Red">
+        <option value="solana">Solana</option>
+        <option value="base">Base</option>
+        <option value="ethereum">Ethereum</option>
+        <option value="bsc">BNB Chain</option>
+      </select>
+      <select id="sort" aria-label="Ordenar">
+        <option value="m5">Mayor cambio 5m</option>
+        <option value="h1">Mayor cambio 1h</option>
+        <option value="h24">Mayor cambio 24h</option>
+        <option value="vol">Más volumen 1h</option>
+        <option value="drop">Mayores caídas 1h</option>
+        <option value="new">Más nuevos</option>
+      </select>
+    </div>
+    <div class="chips" id="radarFilter" role="tablist">
+      <button class="chip on" data-f="all">Todos</button>
+      <button class="chip" data-f="up">Subiendo</button>
+      <button class="chip" data-f="down">Cayendo</button>
+      <button class="chip" data-f="alert">Con alerta</button>
+      <button class="chip" data-f="watch">★ Mi lista</button>
+    </div>
+    <div class="list" id="radarList"><div class="empty">Buscando memecoins en movimiento…</div></div>
+    <form class="addtoken" id="addToken">
+      <input id="addAddr" placeholder="Pega un contrato (mint) para vigilarlo" autocomplete="off">
+      <button type="submit">Añadir</button>
+    </form>
+  </section>
+
+  <!-- TOP -->
+  <section class="view" id="view-top" hidden>
+    <div class="toolbar">
+      <select id="topSort" aria-label="Ordenar top">
+        <option value="rank">Capitalización</option>
+        <option value="h1">Mayor cambio 1h</option>
+        <option value="h24">Mayor cambio 24h</option>
+        <option value="drop">Mayores caídas 24h</option>
+      </select>
+      <input id="topSearch" placeholder="Buscar…" autocomplete="off">
+    </div>
+    <div class="list" id="topList"><div class="empty">Cargando top 100…</div></div>
+  </section>
+
+  <!-- ALERTAS -->
+  <section class="view" id="view-alerts" hidden>
+    <div class="alerthead">
+      <h2>Alertas</h2>
+      <button class="ghost" id="clearAlerts">Borrar</button>
+    </div>
+    <div id="notifBanner" class="banner" hidden>
+      <p>Activa las notificaciones para enterarte aunque estés en otra app.</p>
+      <button id="enableNotif">Activar</button>
+    </div>
+    <div class="list" id="alertList"><div class="empty">Aún no hay alertas. Cuando un token pase tus umbrales aparecerá aquí y sonará un aviso.</div></div>
+  </section>
+
+  <!-- AJUSTES -->
+  <section class="view" id="view-settings" hidden>
+    <h2>Ajustes</h2>
+    <form id="settingsForm" class="settings">
+      <fieldset>
+        <legend>Avisos</legend>
+        <label class="row"><span>Notificaciones</span><input type="checkbox" id="s-notify"></label>
+        <label class="row"><span>Sonido</span><input type="checkbox" id="s-sound"></label>
+        <label class="row"><span>Actualizar cada (seg)</span><input type="number" id="s-refresh" min="15" max="300"></label>
+        <label class="row"><span>No repetir aviso durante (min)</span><input type="number" id="s-cooldown" min="5" max="1440"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Memecoins: cuándo avisar</legend>
+        <label class="row"><span>Subida en 5 min ≥ %</span><input type="number" id="s-up5m"></label>
+        <label class="row"><span>Subida en 1 h ≥ %</span><input type="number" id="s-up1h"></label>
+        <label class="row"><span>Caída en 5 min ≤ %</span><input type="number" id="s-dn5m"></label>
+        <label class="row"><span>Caída en 1 h ≤ %</span><input type="number" id="s-dn1h"></label>
+        <label class="row"><span>Volumen 5 min × sobre lo normal</span><input type="number" id="s-volX" step="0.5"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Memecoins: filtros anti-basura</legend>
+        <label class="row"><span>Liquidez mínima ($)</span><input type="number" id="s-liqMin"></label>
+        <label class="row"><span>Volumen 1 h mínimo ($)</span><input type="number" id="s-vol1hMin"></label>
+        <label class="row"><span>Edad mínima (horas)</span><input type="number" id="s-ageMinH" step="0.5"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Top 100: cuándo avisar</legend>
+        <label class="row"><span>Movimiento en 1 h ≥ ±%</span><input type="number" id="s-top1h"></label>
+        <label class="row"><span>Movimiento en 24 h ≥ ±%</span><input type="number" id="s-top24h"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Análisis con IA (opcional)</legend>
+        <p class="hint">Con una API key de Anthropic, el botón «Análisis IA» pide a Claude un análisis completo del token. La key se guarda solo en este dispositivo. Sin key puedes usar «Copiar para Claude» y pegarlo en la app de Claude.</p>
+        <label class="col"><span>API key</span><input type="password" id="s-apiKey" placeholder="sk-ant-…" autocomplete="off"></label>
+      </fieldset>
+      <div class="actions">
+        <button type="submit">Guardar</button>
+        <button type="button" class="ghost" id="resetSettings">Valores por defecto</button>
+      </div>
+      <p class="hint" id="savedMsg" hidden>Guardado.</p>
+    </form>
+    <p class="hint small">Datos: DexScreener, GeckoTerminal y CoinGecko. Herramienta informativa, no es consejo financiero.</p>
+  </section>
+</main>
+
+<nav class="tabs" id="tabs">
+  <button class="tab on" data-v="radar"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 12l6-6"/></svg>Radar</button>
+  <button class="tab" data-v="top"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Top</button>
+  <button class="tab" data-v="alerts"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1112 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"/></svg>Alertas<span class="badge" id="alertBadge" hidden>0</span></button>
+  <button class="tab" data-v="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Ajustes</button>
+</nav>
+
+<!-- DETALLE -->
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <button class="icon" id="sheetClose" aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <div class="sheet-title" id="dTitle"></div>
+      <button class="icon" id="dStar" aria-label="Añadir a mi lista"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg></button>
+    </div>
+    <div class="dprice" id="dPrice"></div>
+    <div class="dstats" id="dStats"></div>
+    <div class="tfs" id="tfs"></div>
+    <div class="chart" id="chart"><div class="empty">Cargando velas…</div></div>
+    <section class="reading" id="reading"></section>
+    <section class="ai">
+      <div class="ai-actions">
+        <button id="aiBtn">Análisis IA</button>
+        <button class="ghost" id="copyBtn">Copiar para Claude</button>
+      </div>
+      <div id="aiOut" class="aiout" hidden></div>
+    </section>
+    <div class="links" id="dLinks"></div>
+    <p class="hint small">Estimación automática a partir de datos públicos. No predice el futuro ni es consejo financiero.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="analysis.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

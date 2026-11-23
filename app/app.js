@@ -1,0 +1,730 @@
+/* BeyondVision: radar de memecoins + top coins con alertas, velas y análisis. */
+(function () {
+  "use strict";
+  const A = window.BVA;
+  const API = {
+    dex: "https://api.dexscreener.com",
+    gt: "https://api.geckoterminal.com/api/v2",
+    cg: "https://api.coingecko.com/api/v3",
+    claude: "https://api.anthropic.com/v1/messages",
+  };
+  const GT_NET = { solana: "solana", ethereum: "eth", bsc: "bsc", base: "base" };
+
+  // ------------------------------------------------------------ utilidades
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("bv:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("bv:" + k, JSON.stringify(v)); } catch { /* sin almacenamiento */ } },
+  };
+  const num = (x) => { const n = parseFloat(x); return isFinite(n) ? n : null; };
+  const usd = (x) => {
+    if (x == null) return "?";
+    if (x >= 1e9) return "$" + (x / 1e9).toFixed(2) + "B";
+    if (x >= 1e6) return "$" + (x / 1e6).toFixed(2) + "M";
+    if (x >= 1e3) return "$" + (x / 1e3).toFixed(1) + "K";
+    return A.fmt(x);
+  };
+  const pctS = (x) => (x == null ? "–" : (x >= 0 ? "+" : "") + x.toFixed(Math.abs(x) >= 100 ? 0 : 1) + "%");
+  const cls = (x) => (x == null ? "muted" : x >= 0 ? "up" : "down");
+  const ago = (ts) => {
+    const s = Math.round((Date.now() - ts) / 1000);
+    if (s < 60) return `hace ${s}s`;
+    if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+    if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+    return `hace ${Math.round(s / 86400)} d`;
+  };
+  const age = (h) => (h == null ? "?" : h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} d`);
+  const safeUrl = (u) => (typeof u === "string" && /^https:\/\//.test(u) ? u : null);
+
+  async function getJSON(url, opts = {}) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), opts.timeout || 15000);
+    try {
+      const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    } finally { clearTimeout(t); }
+  }
+
+  function toast(msg, ms = 2500) {
+    const el = $("#toast");
+    el.textContent = msg; el.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(() => (el.hidden = true), ms);
+  }
+
+  // ------------------------------------------------------------ ajustes
+  const DEFAULTS = {
+    chain: "solana", refreshSec: 30, notify: true, sound: true, cooldownMin: 60,
+    up5m: 25, up1h: 60, dn5m: -25, dn1h: -40, volX: 5, vol5mMin: 10000,
+    liqMin: 15000, vol1hMin: 10000, ageMinH: 1,
+    top1h: 6, top24h: 20, apiKey: "",
+  };
+  let S = Object.assign({}, DEFAULTS, store.get("settings", {}));
+  let watch = store.get("watch", []); // [{chain, address, symbol}]
+  let alerts = store.get("alerts", []);
+  let cooldown = store.get("cooldown", {});
+  let unseen = store.get("unseen", 0);
+
+  // ------------------------------------------------------------ estado
+  const state = {
+    view: "radar", radar: [], top: [], radarFilter: "all", lastOk: 0, lastErr: null,
+    flashed: new Set(), alerted: new Set(), detail: null, tf: null, chart: null,
+  };
+
+  // ------------------------------------------------------------ datos: memecoins
+  function normPair(p) {
+    const base = p.baseToken || {}, ch = p.priceChange || {}, vol = p.volume || {};
+    const tx = (p.txns || {}).h1 || {}, tx5 = (p.txns || {}).m5 || {};
+    const created = p.pairCreatedAt;
+    return {
+      kind: "dex",
+      id: `${p.chainId}:${base.address}`,
+      chain: p.chainId, address: base.address, pair: p.pairAddress, dex: p.dexId,
+      name: base.name || "?", symbol: base.symbol || "?",
+      price: num(p.priceUsd),
+      ch: { m5: num(ch.m5), h1: num(ch.h1), h6: num(ch.h6), h24: num(ch.h24) },
+      vol5m: num(vol.m5), vol1h: num(vol.h1), vol24h: num(vol.h24),
+      liq: num((p.liquidity || {}).usd), mcap: num(p.marketCap) ?? num(p.fdv),
+      buys1h: tx.buys ?? null, sells1h: tx.sells ?? null, buys5m: tx5.buys ?? null, sells5m: tx5.sells ?? null,
+      ageH: created ? (Date.now() - created) / 3.6e6 : null,
+      img: safeUrl((p.info || {}).imageUrl), url: safeUrl(p.url),
+      socials: ((p.info || {}).socials || []).concat((p.info || {}).websites || []),
+    };
+  }
+
+  async function discover(chain) {
+    const set = new Set();
+    const paths = ["/token-profiles/latest/v1", "/token-boosts/latest/v1", "/token-boosts/top/v1"];
+    const res = await Promise.allSettled(paths.map((p) => getJSON(API.dex + p)));
+    res.forEach((r) => {
+      if (r.status === "fulfilled" && Array.isArray(r.value))
+        r.value.forEach((t) => { if (t.chainId === chain && t.tokenAddress) set.add(t.tokenAddress); });
+    });
+    const net = GT_NET[chain];
+    if (net) {
+      try {
+        const j = await getJSON(`${API.gt}/networks/${net}/trending_pools?page=1`);
+        (j.data || []).forEach((p) => {
+          const id = p.relationships?.base_token?.data?.id;
+          if (id) set.add(id.slice(id.indexOf("_") + 1));
+        });
+      } catch { /* GeckoTerminal opcional */ }
+    }
+    if (!set.size && res.every((r) => r.status === "rejected")) throw new Error("DexScreener no responde");
+    return [...set];
+  }
+
+  async function pairsFor(chain, addresses) {
+    const best = new Map();
+    for (let i = 0; i < addresses.length; i += 30) {
+      const batch = addresses.slice(i, i + 30).join(",");
+      try {
+        const pairs = await getJSON(`${API.dex}/tokens/v1/${chain}/${batch}`);
+        (Array.isArray(pairs) ? pairs : []).forEach((p) => {
+          const addr = p.baseToken?.address;
+          if (!addr) return;
+          const cur = best.get(addr);
+          if (!cur || (num(p.liquidity?.usd) || 0) > (num(cur.liquidity?.usd) || 0)) best.set(addr, p);
+        });
+      } catch (e) { console.warn(e); }
+    }
+    return [...best.values()].map(normPair);
+  }
+
+  const isWatched = (t) => watch.some((w) => w.chain === t.chain && w.address === t.address);
+  const passFilters = (t) => isWatched(t) || (
+    (t.liq || 0) >= S.liqMin && (t.vol1h || 0) >= S.vol1hMin && (t.ageH == null || t.ageH >= S.ageMinH));
+
+  async function refreshRadar() {
+    const chain = S.chain;
+    const addrs = await discover(chain);
+    watch.filter((w) => w.chain === chain).forEach((w) => { if (!addrs.includes(w.address)) addrs.push(w.address); });
+    let tokens = await pairsFor(chain, addrs);
+    // Tokens de mi lista en otras redes
+    const others = {};
+    watch.filter((w) => w.chain !== chain).forEach((w) => (others[w.chain] ||= []).push(w.address));
+    for (const [c, list] of Object.entries(others)) tokens = tokens.concat(await pairsFor(c, list));
+    tokens = tokens.filter(passFilters);
+    tokens.forEach((t) => (t.flags = evaluateDex(t)));
+    state.radar = tokens;
+    tokens.forEach((t) => t.flags.length && fireAlerts(t, t.flags));
+  }
+
+  // ------------------------------------------------------------ datos: top coins
+  async function refreshTop() {
+    const url = `${API.cg}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=1h,24h,7d`;
+    const data = await getJSON(url);
+    state.top = data.map((c) => {
+      const t = {
+        kind: "cg", id: "cg:" + c.id, cgId: c.id, name: c.name, symbol: (c.symbol || "").toUpperCase(),
+        price: num(c.current_price), mcap: num(c.market_cap), rank: c.market_cap_rank, vol24h: num(c.total_volume),
+        ch: { h1: num(c.price_change_percentage_1h_in_currency), h24: num(c.price_change_percentage_24h_in_currency), d7: num(c.price_change_percentage_7d_in_currency) },
+        img: safeUrl(c.image), spark: c.sparkline_in_7d?.price || [],
+        url: `https://www.coingecko.com/es/monedas/${encodeURIComponent(c.id)}`,
+        high24: num(c.high_24h), low24: num(c.low_24h), ath: num(c.ath), athPct: num(c.ath_change_percentage),
+      };
+      t.flags = evaluateTop(t);
+      return t;
+    });
+    state.top.forEach((t) => t.flags.length && fireAlerts(t, t.flags));
+  }
+
+  // ------------------------------------------------------------ reglas
+  function evaluateDex(t) {
+    const f = [];
+    const w = isWatched(t), k = w ? 0.5 : 1; // mi lista: avisa con la mitad del movimiento
+    if (t.ch.m5 != null && t.ch.m5 >= S.up5m * k) f.push(["subida_5m", "subida", `+${t.ch.m5.toFixed(1)}% en 5 min`]);
+    if (t.ch.h1 != null && t.ch.h1 >= S.up1h * k) f.push(["subida_1h", "subida", `+${t.ch.h1.toFixed(1)}% en 1 h`]);
+    if (t.ch.m5 != null && t.ch.m5 <= S.dn5m * k) f.push(["bajada_5m", "bajada", `${t.ch.m5.toFixed(1)}% en 5 min`]);
+    if (t.ch.h1 != null && t.ch.h1 <= S.dn1h * k) f.push(["bajada_1h", "bajada", `${t.ch.h1.toFixed(1)}% en 1 h`]);
+    if (t.vol5m && t.vol1h) {
+      const avg = t.vol1h / 12;
+      if (avg > 0 && t.vol5m >= S.volX * avg && t.vol5m >= S.vol5mMin * k)
+        f.push(["volumen", "volumen", `volumen 5 min ×${(t.vol5m / avg).toFixed(1)}`]);
+    }
+    return f;
+  }
+
+  function evaluateTop(t) {
+    const f = [];
+    if (t.ch.h1 != null && Math.abs(t.ch.h1) >= S.top1h)
+      f.push([t.ch.h1 > 0 ? "subida_1h" : "bajada_1h", t.ch.h1 > 0 ? "subida" : "bajada", `${pctS(t.ch.h1)} en 1 h`]);
+    if (t.ch.h24 != null && Math.abs(t.ch.h24) >= S.top24h)
+      f.push([t.ch.h24 > 0 ? "subida_24h" : "bajada_24h", t.ch.h24 > 0 ? "subida" : "bajada", `${pctS(t.ch.h24)} en 24 h`]);
+    return f;
+  }
+
+  function riskTags(t) {
+    const r = [];
+    if (t.kind !== "dex") return r;
+    if (t.ageH != null && t.ageH < 24) r.push("nuevo");
+    if (t.liq != null && t.liq < 25000) r.push("liq. baja");
+    if (t.buys1h != null && t.sells1h != null && t.sells1h > 2 * Math.max(t.buys1h, 1)) r.push("ventas");
+    return r;
+  }
+
+  // ------------------------------------------------------------ alertas
+  let audioCtx = null;
+  function beep(type) {
+    if (!S.sound) return;
+    try {
+      audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+      const notes = type === "bajada" ? [660, 440] : type === "subida" ? [520, 880] : [700, 700];
+      notes.forEach((f, i) => {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.frequency.value = f; o.type = "sine";
+        g.gain.setValueAtTime(0.0001, audioCtx.currentTime + i * 0.16);
+        g.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + i * 0.16 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + i * 0.16 + 0.15);
+        o.connect(g).connect(audioCtx.destination);
+        o.start(audioCtx.currentTime + i * 0.16); o.stop(audioCtx.currentTime + i * 0.16 + 0.16);
+      });
+    } catch { /* audio no disponible */ }
+  }
+
+  async function notify(title, body, tag) {
+    if (!S.notify || !("Notification" in window) || Notification.permission !== "granted") return;
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) reg.showNotification(title, { body, tag, icon: "icon-192.png", badge: "icon-192.png", data: { tag } });
+      else new Notification(title, { body, tag });
+    } catch { /* notificaciones no disponibles */ }
+  }
+
+  function fireAlerts(t, flags) {
+    const now = Date.now();
+    const fresh = flags.filter(([key]) => {
+      const k = `${t.id}|${key}`;
+      return !cooldown[k] || now - cooldown[k] >= S.cooldownMin * 60000;
+    });
+    if (!fresh.length) return;
+    fresh.forEach(([key]) => (cooldown[`${t.id}|${key}`] = now));
+    const type = fresh[0][1];
+    const reason = fresh.map((f) => f[2]).join(" · ");
+    const a = {
+      ts: now, id: t.id, kind: t.kind, chain: t.chain, address: t.address, cgId: t.cgId,
+      name: t.name, symbol: t.symbol, type, reason, price: t.price, mcap: t.mcap, risks: riskTags(t),
+    };
+    alerts.unshift(a);
+    alerts = alerts.slice(0, 200);
+    state.flashed.add(t.id);
+    if (state.view !== "alerts") unseen++;
+    const icon = type === "subida" ? "🚀" : type === "bajada" ? "🔻" : "📈";
+    const title = `${icon} ${t.symbol} ${type === "subida" ? "sube" : type === "bajada" ? "cae" : "volumen"}: ${reason}`;
+    const body = `${t.name} · ${A.fmt(t.price)} · MC ${usd(t.mcap)}${a.risks.length ? " · ⚠️ " + a.risks.join(", ") : ""}`;
+    notify(title, body, t.id);
+    beep(type);
+    persistAlerts();
+  }
+
+  function persistAlerts() {
+    // limpiar enfriamientos de más de 2 días
+    const lim = Date.now() - 2 * 864e5;
+    Object.keys(cooldown).forEach((k) => cooldown[k] < lim && delete cooldown[k]);
+    store.set("alerts", alerts); store.set("cooldown", cooldown); store.set("unseen", unseen);
+  }
+
+  // ------------------------------------------------------------ render: listas
+  function avatar(t) {
+    return `<span class="av">${t.img ? `<img src="${esc(t.img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}${t.img ? "" : esc(t.symbol.slice(0, 3))}</span>`;
+  }
+
+  function tokenRow(t) {
+    const tags = [];
+    t.flags.forEach(([, type]) => {
+      if (type === "subida" && !tags.includes("up")) tags.push("up");
+      if (type === "bajada" && !tags.includes("down")) tags.push("down");
+      if (type === "volumen" && !tags.includes("vol")) tags.push("vol");
+    });
+    const tagHtml = tags.map((x) => `<span class="tag ${x}">${x === "up" ? "pump" : x === "down" ? "dump" : "vol"}</span>`).join("")
+      + riskTags(t).map((r) => `<span class="tag risk">${esc(r)}</span>`).join("");
+    const pressure = t.buys1h != null && t.sells1h != null && t.buys1h + t.sells1h > 0
+      ? `<div class="pbar"><i style="width:${(100 * t.buys1h / (t.buys1h + t.sells1h)).toFixed(0)}%"></i></div>` : "";
+    const sub = t.kind === "dex"
+      ? `MC ${usd(t.mcap)} · Liq ${usd(t.liq)} · Vol 1h ${usd(t.vol1h)} · ${age(t.ageH)}`
+      : `#${t.rank} · MC ${usd(t.mcap)} · Vol 24h ${usd(t.vol24h)}`;
+    const chg = t.kind === "dex"
+      ? `<span class="${cls(t.ch.m5)}"><em>5m</em>${pctS(t.ch.m5)}</span><span class="${cls(t.ch.h1)}"><em>1h</em>${pctS(t.ch.h1)}</span><span class="${cls(t.ch.h24)}"><em>24h</em>${pctS(t.ch.h24)}</span>`
+      : `<span class="${cls(t.ch.h1)}"><em>1h</em>${pctS(t.ch.h1)}</span><span class="${cls(t.ch.h24)}"><em>24h</em>${pctS(t.ch.h24)}</span><span class="${cls(t.ch.d7)}"><em>7d</em>${pctS(t.ch.d7)}</span>`;
+    const flash = state.flashed.has(t.id) ? " flash" : "";
+    return `<button class="row-t${flash}" data-id="${esc(t.id)}">
+      ${avatar(t)}
+      <span class="name"><b>${isWatched(t) ? "★ " : ""}<span class="sym">${esc(t.symbol)}</span>${tagHtml}</b><small>${esc(t.name)} · ${sub}</small>${pressure}</span>
+      <span class="right"><span class="p">${A.fmt(t.price)}</span><span class="changes">${chg}</span></span>
+    </button>`;
+  }
+
+  function renderRadar() {
+    let list = state.radar.slice();
+    const f = state.radarFilter;
+    if (f === "up") list = list.filter((t) => (t.ch.h1 ?? 0) > 0);
+    if (f === "down") list = list.filter((t) => (t.ch.h1 ?? 0) < 0);
+    if (f === "alert") list = list.filter((t) => t.flags.length);
+    if (f === "watch") list = list.filter(isWatched);
+    const sort = $("#sort").value;
+    const key = { m5: (t) => t.ch.m5, h1: (t) => t.ch.h1, h24: (t) => t.ch.h24, vol: (t) => t.vol1h, drop: (t) => -(t.ch.h1 ?? 0), new: (t) => -(t.ageH ?? 1e9) }[sort];
+    list.sort((a, b) => (key(b) ?? -1e12) - (key(a) ?? -1e12));
+    $("#radarList").innerHTML = list.length ? list.slice(0, 120).map(tokenRow).join("")
+      : `<div class="empty">${state.lastErr ? "No hay datos: " + esc(state.lastErr) : f === "watch" ? "Tu lista está vacía. Abre un token y pulsa ★, o pega un contrato abajo." : "Ningún token cumple los filtros ahora mismo."}</div>`;
+  }
+
+  function renderTop() {
+    let list = state.top.slice();
+    const q = $("#topSearch").value.trim().toLowerCase();
+    if (q) list = list.filter((t) => t.name.toLowerCase().includes(q) || t.symbol.toLowerCase().includes(q));
+    const sort = $("#topSort").value;
+    const key = { rank: (t) => -t.rank, h1: (t) => t.ch.h1, h24: (t) => t.ch.h24, drop: (t) => -(t.ch.h24 ?? 0) }[sort];
+    list.sort((a, b) => (key(b) ?? -1e12) - (key(a) ?? -1e12));
+    $("#topList").innerHTML = list.length ? list.map(tokenRow).join("") : `<div class="empty">Sin datos de CoinGecko todavía.</div>`;
+  }
+
+  function renderAlerts() {
+    $("#alertList").innerHTML = alerts.length ? alerts.map((a, i) => `
+      <button class="alert ${esc(a.type)}" data-alert="${i}">
+        <span class="stripe"></span>
+        <span><b>${esc(a.symbol)}</b> <span class="muted">${esc(a.name)}</span>
+          <div class="why ${a.type === "subida" ? "up" : a.type === "bajada" ? "down" : ""}">${esc(a.reason)}</div>
+          <div class="meta">${ago(a.ts)} · ${A.fmt(a.price)} · MC ${usd(a.mcap)}${a.chain ? " · " + esc(a.chain) : ""}${a.risks?.length ? " · ⚠️ " + esc(a.risks.join(", ")) : ""}</div>
+        </span>
+      </button>`).join("")
+      : `<div class="empty">Aún no hay alertas. Cuando un token pase tus umbrales aparecerá aquí y sonará un aviso.</div>`;
+    const showBanner = "Notification" in window && Notification.permission !== "granted";
+    $("#notifBanner").hidden = !showBanner;
+  }
+
+  function renderBadge() {
+    const b = $("#alertBadge");
+    b.hidden = !unseen; b.textContent = unseen > 99 ? "99+" : unseen;
+  }
+
+  function renderLive() {
+    const el = $("#live");
+    el.classList.toggle("ok", !state.lastErr && !!state.lastOk);
+    el.classList.toggle("err", !!state.lastErr);
+    $("#liveText").textContent = state.lastErr ? "sin conexión" : state.lastOk ? `en vivo · ${ago(state.lastOk)}` : "conectando…";
+  }
+
+  function renderAll() {
+    if (state.view === "radar") renderRadar();
+    if (state.view === "top") renderTop();
+    if (state.view === "alerts") renderAlerts();
+    renderBadge(); renderLive();
+    state.flashed.clear();
+  }
+
+  // ------------------------------------------------------------ bucle principal
+  let cycle = 0, timer = null, busy = false;
+  async function tick() {
+    if (busy) return;
+    busy = true;
+    try {
+      await refreshRadar();
+      if (cycle % 4 === 0) await refreshTop().catch((e) => console.warn("CoinGecko", e));
+      state.lastOk = Date.now(); state.lastErr = null;
+    } catch (e) {
+      state.lastErr = e.message || String(e);
+    } finally {
+      busy = false; cycle++;
+      renderAll();
+      if (state.detail) refreshDetailHeader();
+    }
+  }
+  function schedule() {
+    clearInterval(timer);
+    timer = setInterval(tick, Math.max(15, S.refreshSec) * 1000);
+  }
+  setInterval(renderLive, 5000);
+
+  // ------------------------------------------------------------ detalle
+  const TF_DEX = [["1m", "minute", 1], ["5m", "minute", 5], ["15m", "minute", 15], ["1h", "hour", 1], ["4h", "hour", 4], ["1D", "day", 1]];
+  const TF_CG = [["30m", 1], ["4h", 14], ["4D", 180]];
+
+  function findToken(id) {
+    return state.radar.find((t) => t.id === id) || state.top.find((t) => t.id === id) || (state.detail?.id === id ? state.detail : null);
+  }
+
+  async function openDetail(t) {
+    state.detail = t;
+    state.tf = t.kind === "dex" ? "5m" : "30m";
+    $("#sheet").hidden = false;
+    document.body.style.overflow = "hidden";
+    $("#aiOut").hidden = true; $("#aiOut").textContent = "";
+    refreshDetailHeader();
+    renderTfs();
+    loadCandles();
+  }
+
+  function closeDetail() {
+    $("#sheet").hidden = true;
+    document.body.style.overflow = "";
+    state.detail = null;
+    if (state.chart) { state.chart.remove(); state.chart = null; }
+  }
+
+  function refreshDetailHeader() {
+    const live = findToken(state.detail.id);
+    if (live) state.detail = live;
+    const t = state.detail;
+    $("#dTitle").innerHTML = `<b>${esc(t.symbol)}</b><small>${esc(t.name)}${t.chain ? " · " + esc(t.chain) : t.rank ? " · #" + t.rank : ""}</small>`;
+    $("#dStar").classList.toggle("on", t.kind === "dex" && isWatched(t));
+    $("#dStar").hidden = t.kind !== "dex";
+    const ch = t.kind === "dex"
+      ? [["5m", t.ch.m5], ["1h", t.ch.h1], ["6h", t.ch.h6], ["24h", t.ch.h24]]
+      : [["1h", t.ch.h1], ["24h", t.ch.h24], ["7d", t.ch.d7]];
+    $("#dPrice").innerHTML = `<div class="big">${A.fmt(t.price)}</div><div class="changes">${ch.map(([k, v]) => `<span class="${cls(v)}"><em>${k}</em> ${pctS(v)}</span>`).join("")}</div>`;
+    const stats = t.kind === "dex"
+      ? [["Market cap", usd(t.mcap)], ["Liquidez", usd(t.liq)], ["Vol 1h", usd(t.vol1h)], ["Vol 24h", usd(t.vol24h)], ["Compras/ventas 1h", `${t.buys1h ?? "?"}/${t.sells1h ?? "?"}`], ["Edad", age(t.ageH)]]
+      : [["Market cap", usd(t.mcap)], ["Ranking", "#" + t.rank], ["Vol 24h", usd(t.vol24h)], ["Máx 24h", A.fmt(t.high24)], ["Mín 24h", A.fmt(t.low24)], ["Desde ATH", pctS(t.athPct)]];
+    $("#dStats").innerHTML = stats.map(([k, v]) => `<div><small>${k}</small><span>${esc(v)}</span></div>`).join("");
+    const links = [];
+    if (t.url) links.push(`<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.kind === "dex" ? "DexScreener" : "CoinGecko"}</a>`);
+    if (t.kind === "dex" && t.chain === "solana") links.push(`<a href="https://rugcheck.xyz/tokens/${encodeURIComponent(t.address)}" target="_blank" rel="noopener">RugCheck</a>`);
+    if (t.kind === "dex") links.push(`<button id="copyAddr">Copiar contrato</button>`);
+    $("#dLinks").innerHTML = links.join("");
+    const ca = $("#copyAddr");
+    if (ca) ca.onclick = () => copy(t.address, "Contrato copiado");
+  }
+
+  function renderTfs() {
+    const t = state.detail;
+    const tfs = t.kind === "dex" ? TF_DEX.map((x) => x[0]) : TF_CG.map((x) => x[0]);
+    $("#tfs").innerHTML = tfs.map((x) => `<button data-tf="${x}" class="${x === state.tf ? "on" : ""}">${x}</button>`).join("");
+  }
+
+  async function fetchCandles(t, tf) {
+    if (t.kind === "dex") {
+      const net = GT_NET[t.chain];
+      if (!net) throw new Error("Velas no disponibles para esta red");
+      const [, unit, agg] = TF_DEX.find((x) => x[0] === tf);
+      const j = await getJSON(`${API.gt}/networks/${net}/pools/${t.pair}/ohlcv/${unit}?aggregate=${agg}&limit=300&currency=usd`);
+      const list = j?.data?.attributes?.ohlcv_list || [];
+      return list.map((k) => ({ time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] })).sort((a, b) => a.time - b.time);
+    }
+    const [, days] = TF_CG.find((x) => x[0] === tf);
+    const list = await getJSON(`${API.cg}/coins/${encodeURIComponent(t.cgId)}/ohlc?vs_currency=usd&days=${days}`);
+    const seen = new Set();
+    return list.map((k) => ({ time: Math.floor(k[0] / 1000), open: k[1], high: k[2], low: k[3], close: k[4], volume: 0 }))
+      .filter((k) => !seen.has(k.time) && seen.add(k.time)).sort((a, b) => a.time - b.time);
+  }
+
+  async function loadCandles() {
+    const t = state.detail, tf = state.tf;
+    const box = $("#chart");
+    box.innerHTML = `<div class="empty">Cargando velas…</div>`;
+    $("#reading").innerHTML = "";
+    let candles;
+    try { candles = await fetchCandles(t, tf); }
+    catch (e) { box.innerHTML = `<div class="empty">No se pudieron cargar las velas (${esc(e.message)}).${t.url ? ` <a href="${esc(t.url)}" target="_blank" rel="noopener">Ver en ${t.kind === "dex" ? "DexScreener" : "CoinGecko"}</a>` : ""}</div>`; return; }
+    if (state.detail !== t || state.tf !== tf) return;
+    if (!candles.length) { box.innerHTML = `<div class="empty">Sin velas para este periodo.</div>`; return; }
+    state.candles = candles;
+    const res = A.analyze(candles, { buys1h: t.buys1h, sells1h: t.sells1h, liquidity: t.liq, mcap: t.mcap, ageH: t.ageH, change24h: t.ch.h24 });
+    state.reading = res;
+    drawChart(candles, res);
+    renderReading(res, tf);
+  }
+
+  function drawChart(candles, res) {
+    const box = $("#chart");
+    box.innerHTML = "";
+    if (state.chart) { state.chart.remove(); state.chart = null; }
+    if (!window.LightweightCharts) { box.innerHTML = `<div class="empty">No se pudo cargar la librería de gráficos.</div>`; return; }
+    const css = getComputedStyle(document.documentElement);
+    const c = (n) => css.getPropertyValue(n).trim();
+    const chart = LightweightCharts.createChart(box, {
+      autoSize: true,
+      layout: { background: { color: c("--panel") }, textColor: c("--muted"), fontFamily: "JetBrains Mono, monospace", fontSize: 11 },
+      grid: { vertLines: { color: c("--line") }, horzLines: { color: c("--line") } },
+      rightPriceScale: { borderColor: c("--line") },
+      timeScale: { borderColor: c("--line"), timeVisible: true, secondsVisible: false },
+      crosshair: { mode: 0 },
+    });
+    const prec = candles[candles.length - 1].close;
+    const decimals = prec >= 1 ? 2 : Math.min(10, Math.ceil(-Math.log10(prec)) + 3);
+    const priceFormat = { type: "price", precision: decimals, minMove: Math.pow(10, -decimals) };
+    const cs = chart.addCandlestickSeries({ upColor: c("--up"), downColor: c("--down"), borderVisible: false, wickUpColor: c("--up"), wickDownColor: c("--down"), priceFormat });
+    cs.setData(candles);
+    if (candles.some((k) => k.volume > 0)) {
+      const vs = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
+      chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+      vs.setData(candles.map((k) => ({ time: k.time, value: k.volume, color: (k.close >= k.open ? c("--up") : c("--down")) + "66" })));
+    }
+    if (res) {
+      const line = (vals, color) => {
+        const s = chart.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat });
+        s.setData(candles.map((k, i) => ({ time: k.time, value: vals[i] })));
+      };
+      line(res.series.ema9, c("--accent"));
+      line(res.series.ema21, c("--warn"));
+      res.supports.forEach((p, i) => cs.createPriceLine({ price: p, color: c("--up"), lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "S" + (i + 1) }));
+      res.resistances.forEach((p, i) => cs.createPriceLine({ price: p, color: c("--down"), lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "R" + (i + 1) }));
+    }
+    chart.timeScale().fitContent();
+    state.chart = chart;
+  }
+
+  function renderReading(r, tf) {
+    if (!r) { $("#reading").innerHTML = `<p class="muted">Pocas velas para estimar (mínimo 20). Prueba otra temporalidad.</p>`; return; }
+    const pos = (r.score + 100) / 2;
+    $("#reading").innerHTML = `
+      <h3>Lectura técnica · ${esc(tf)} <span class="bias ${r.bias}">${r.label}</span></h3>
+      <div class="gauge" title="Puntuación ${r.score}"><i style="left:${pos}%"></i></div>
+      <div class="levels">
+        <div><small>Resistencias</small><span class="num down">${r.resistances.map(A.fmt).join(" · ") || "en máximos"}</span></div>
+        <div><small>Soportes</small><span class="num up">${r.supports.map(A.fmt).join(" · ") || "sin soporte claro"}</span></div>
+        <div><small>RSI 14</small><span class="num">${r.rsi != null ? r.rsi.toFixed(0) : "?"}</span></div>
+        <div><small>Volatilidad por vela</small><span class="num">±${r.atrPct.toFixed(1)}%</span></div>
+      </div>
+      <ul>${r.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+      <div class="scen">${r.scenarios.map((s) => `<p class="${s.dir}">${esc(s.text)}</p>`).join("")}</div>
+      ${r.risks.length ? `<ul class="risks">${r.risks.map((x) => `<li>⚠️ ${esc(x)}</li>`).join("")}</ul>` : ""}
+      <p class="muted small">Confianza: ${r.confidence}. Puntuación ${r.score > 0 ? "+" : ""}${r.score} sobre ±100.</p>`;
+  }
+
+  // ------------------------------------------------------------ análisis IA
+  function buildPrompt() {
+    const t = state.detail, r = state.reading, c = state.candles || [];
+    const lastC = c.slice(-60).map((k) => [new Date(k.time * 1000).toISOString().slice(5, 16), +k.open.toPrecision(5), +k.high.toPrecision(5), +k.low.toPrecision(5), +k.close.toPrecision(5), Math.round(k.volume)]);
+    const data = {
+      token: { nombre: t.name, simbolo: t.symbol, red: t.chain || null, contrato: t.address || null, ranking: t.rank || null },
+      precio_usd: t.price, cambios_pct: t.ch, market_cap: t.mcap, liquidez_usd: t.liq ?? null,
+      volumen: { "5m": t.vol5m ?? null, "1h": t.vol1h ?? null, "24h": t.vol24h ?? null },
+      transacciones_1h: t.buys1h != null ? { compras: t.buys1h, ventas: t.sells1h } : null,
+      edad_horas: t.ageH != null ? Math.round(t.ageH) : null,
+      temporalidad: state.tf,
+      indicadores: r ? { rsi14: r.rsi && +r.rsi.toFixed(1), ema9: r.ema9, ema21: r.ema21, volatilidad_vela_pct: +r.atrPct.toFixed(2), soportes: r.supports, resistencias: r.resistances, max_periodo: r.rangeHigh, min_periodo: r.rangeLow, puntuacion_auto: r.score } : null,
+      ultimas_velas_fecha_o_h_l_c_vol: lastC,
+    };
+    return `Eres un analista de trading de criptomonedas. Analiza este token con los datos de abajo (obtenidos hace segundos de DexScreener/GeckoTerminal/CoinGecko) y con lo que sepas del proyecto, del sector y del comportamiento típico de este tipo de activos.
+
+Responde en español, claro y directo, con estas secciones:
+1. Situación actual (2-3 frases).
+2. Lectura de las velas: tendencia, estructura, volumen, momentum.
+3. Niveles clave (soportes/resistencias) con precio.
+4. Escenarios para las próximas horas: alcista, lateral y bajista, cada uno con condición, objetivo, invalidación y una probabilidad aproximada que sume 100%.
+5. Riesgos específicos (liquidez, rug, concentración, narrativa, sobreextensión).
+6. Qué vigilar ahora.
+No inventes datos que no estén aquí; si algo no se puede saber, dilo. Termina con una línea recordando que no es consejo financiero.
+
+DATOS:
+${JSON.stringify(data)}`;
+  }
+
+  async function runAI() {
+    const out = $("#aiOut");
+    if (!S.apiKey) {
+      out.hidden = false;
+      out.textContent = "Para el análisis IA dentro de la app, añade tu API key de Anthropic en Ajustes (console.anthropic.com → API keys). Sin key: pulsa «Copiar para Claude» y pégalo en la app de Claude.";
+      return;
+    }
+    out.hidden = false; out.textContent = "Claude está analizando las velas y el mercado…";
+    $("#aiBtn").disabled = true;
+    try {
+      const r = await fetch(API.claude, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": S.apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "server-side-fallback-2026-07-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-opus-5-5",
+          max_tokens: 16000,
+          thinking: { type: "adaptive" },
+          output_config: { effort: "medium" },
+          fallbacks: "default",
+          messages: [{ role: "user", content: buildPrompt() }],
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = j?.error?.message || `HTTP ${r.status}`;
+        out.textContent = r.status === 401 ? "API key no válida. Revísala en Ajustes."
+          : r.status === 429 ? "Demasiadas peticiones o sin saldo en tu cuenta de Anthropic. Espera un poco y reintenta."
+          : "Error de la API de Claude: " + msg;
+        return;
+      }
+      if (j.stop_reason === "refusal") { out.textContent = "Claude no ha podido analizar este token. Prueba de nuevo o usa «Copiar para Claude»."; return; }
+      const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+      out.textContent = text || "Respuesta vacía. Reintenta.";
+    } catch (e) {
+      out.textContent = "No se pudo conectar con Claude: " + e.message;
+    } finally { $("#aiBtn").disabled = false; }
+  }
+
+  async function copy(text, okMsg) {
+    try { await navigator.clipboard.writeText(text); toast(okMsg); }
+    catch {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); toast(okMsg); } catch { toast("No se pudo copiar"); }
+      ta.remove();
+    }
+  }
+
+  // ------------------------------------------------------------ ajustes UI
+  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "apiKey"];
+  const MAP = { refresh: "refreshSec", cooldown: "cooldownMin" };
+  function fillSettings() {
+    FIELDS.forEach((f) => {
+      const el = $("#s-" + f), k = MAP[f] || f;
+      if (el.type === "checkbox") el.checked = !!S[k]; else el.value = S[k];
+    });
+  }
+  function readSettings() {
+    FIELDS.forEach((f) => {
+      const el = $("#s-" + f), k = MAP[f] || f;
+      if (el.type === "checkbox") S[k] = el.checked;
+      else if (el.type === "number") { const v = parseFloat(el.value); if (isFinite(v)) S[k] = v; }
+      else S[k] = el.value.trim();
+    });
+    store.set("settings", S);
+  }
+
+  async function askNotify() {
+    if (!("Notification" in window)) { toast("Este navegador no admite notificaciones. En iPhone: añade la app a la pantalla de inicio."); return; }
+    const p = await Notification.requestPermission();
+    toast(p === "granted" ? "Notificaciones activadas" : "Notificaciones bloqueadas en el navegador");
+    renderAlerts();
+  }
+
+  // ------------------------------------------------------------ eventos
+  function setView(v) {
+    state.view = v;
+    document.querySelectorAll(".view").forEach((s) => (s.hidden = s.id !== "view-" + v));
+    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+    if (v === "alerts") { unseen = 0; store.set("unseen", 0); }
+    if (v === "settings") fillSettings();
+    renderAll();
+    window.scrollTo(0, 0);
+  }
+
+  function unlockAudio() { if (S.sound) { try { audioCtx ||= new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch { } } }
+
+  function bind() {
+    $("#tabs").addEventListener("click", (e) => { const b = e.target.closest(".tab"); if (b) setView(b.dataset.v); });
+    document.addEventListener("click", unlockAudio, { once: true });
+    $("#radarFilter").addEventListener("click", (e) => {
+      const b = e.target.closest(".chip"); if (!b) return;
+      state.radarFilter = b.dataset.f;
+      document.querySelectorAll("#radarFilter .chip").forEach((c) => c.classList.toggle("on", c === b));
+      renderRadar();
+    });
+    $("#sort").addEventListener("change", renderRadar);
+    $("#chain").value = S.chain;
+    $("#chain").addEventListener("change", (e) => {
+      S.chain = e.target.value; store.set("settings", S);
+      state.radar = []; $("#radarList").innerHTML = `<div class="empty">Cargando ${esc(S.chain)}…</div>`;
+      tick();
+    });
+    $("#topSort").addEventListener("change", renderTop);
+    $("#topSearch").addEventListener("input", renderTop);
+    const openFrom = (e) => {
+      const row = e.target.closest(".row-t"); if (!row) return;
+      const t = findToken(row.dataset.id); if (t) openDetail(t);
+    };
+    $("#radarList").addEventListener("click", openFrom);
+    $("#topList").addEventListener("click", openFrom);
+    $("#alertList").addEventListener("click", async (e) => {
+      const el = e.target.closest(".alert"); if (!el) return;
+      const a = alerts[+el.dataset.alert];
+      let t = findToken(a.id);
+      if (!t && a.kind === "dex") { const r = await pairsFor(a.chain, [a.address]); t = r[0]; if (t) t.flags = []; }
+      if (t) openDetail(t); else toast("Ese token ya no está en el radar");
+    });
+    $("#clearAlerts").addEventListener("click", () => { alerts = []; persistAlerts(); renderAlerts(); });
+    $("#enableNotif").addEventListener("click", askNotify);
+    $("#addToken").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const addr = $("#addAddr").value.trim();
+      if (!addr) return;
+      toast("Buscando token…");
+      const r = await pairsFor(S.chain, [addr]);
+      if (!r.length) { toast(`No encontré ese contrato en ${S.chain}`); return; }
+      const t = r[0];
+      if (!isWatched(t)) watch.push({ chain: t.chain, address: t.address, symbol: t.symbol });
+      store.set("watch", watch);
+      $("#addAddr").value = "";
+      toast(`${t.symbol} añadido a tu lista`);
+      t.flags = evaluateDex(t);
+      if (!state.radar.some((x) => x.id === t.id)) state.radar.push(t);
+      renderRadar(); openDetail(t);
+    });
+    $("#sheetClose").addEventListener("click", closeDetail);
+    $("#dStar").addEventListener("click", () => {
+      const t = state.detail; if (t.kind !== "dex") return;
+      if (isWatched(t)) watch = watch.filter((w) => !(w.chain === t.chain && w.address === t.address));
+      else watch.push({ chain: t.chain, address: t.address, symbol: t.symbol });
+      store.set("watch", watch);
+      toast(isWatched(t) ? `${t.symbol} en tu lista: avisos más sensibles` : `${t.symbol} quitado de tu lista`);
+      refreshDetailHeader();
+    });
+    $("#tfs").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      state.tf = b.dataset.tf; renderTfs(); loadCandles();
+    });
+    $("#aiBtn").addEventListener("click", runAI);
+    $("#copyBtn").addEventListener("click", () => copy(buildPrompt(), "Copiado: pégalo en Claude"));
+    $("#settingsForm").addEventListener("submit", (e) => {
+      e.preventDefault(); readSettings(); schedule();
+      state.radar.forEach((t) => (t.flags = evaluateDex(t)));
+      state.top.forEach((t) => (t.flags = evaluateTop(t)));
+      $("#savedMsg").hidden = false; setTimeout(() => ($("#savedMsg").hidden = true), 2000);
+      if (S.notify && "Notification" in window && Notification.permission === "default") askNotify();
+    });
+    $("#resetSettings").addEventListener("click", () => { const k = S.apiKey; S = Object.assign({}, DEFAULTS, { apiKey: k }); store.set("settings", S); fillSettings(); toast("Valores por defecto restaurados"); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && state.detail) closeDetail(); });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+  }
+
+  // ------------------------------------------------------------ arranque
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => { });
+  bind();
+  renderAll();
+  tick();
+  schedule();
+  window.BV = { state, evaluateDex, evaluateTop, normPair }; // para pruebas
+})();
