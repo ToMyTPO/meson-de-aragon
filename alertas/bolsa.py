@@ -25,7 +25,7 @@ def archivo(sym):
     return re.sub(r"[^A-Za-z0-9]", "_", sym)
 
 
-def get(sym, rng, itv, intentos=3):
+def get(sym, rng, itv, intentos=1):
     url = URL.format(sym=urllib.parse.quote(sym), rng=rng, itv=itv)
     err = None
     for i in range(intentos):
@@ -96,8 +96,16 @@ def main(argv=None):
     os.makedirs(os.path.join(args.salida, "velas"), exist_ok=True)
 
     items, fallos = [], []
+    inicio = time.time()
     for grupo, valores in lista.items():
         for sym, nombre in valores:
+            # Si la fuente rechaza todo, abandonar pronto para que la app se publique igual
+            if not items and len(fallos) >= 3:
+                print("[error] la fuente rechaza las peticiones; se omite la bolsa en esta ejecución", file=sys.stderr)
+                break
+            if time.time() - inicio > 240:
+                print("[aviso] límite de tiempo alcanzado; se guardan los valores ya descargados", file=sys.stderr)
+                break
             try:
                 diario = get(sym, "1y", "1d")
                 intra = get(sym, "5d", "15m")
@@ -110,6 +118,9 @@ def main(argv=None):
                 json.dump({"15m": vi, "1D": vd}, f, separators=(",", ":"))
             items.append(resumen(sym, nombre, GRUPOS.get(grupo, grupo), diario, vi))
             time.sleep(0.3)  # no saturar la fuente
+        else:
+            continue
+        break
 
     salida = {"updated": int(time.time()), "source": "Yahoo Finance", "items": items, "failed": fallos}
     with open(os.path.join(args.salida, "bolsa.json"), "w", encoding="utf-8") as f:
