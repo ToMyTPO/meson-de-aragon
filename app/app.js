@@ -192,7 +192,7 @@
         price: x.price, currency: x.currency, exchange: x.exchange, time: x.time ? x.time * 1000 : null,
         ch: { d1: x.ch["1d"], d5: x.ch["5d"], m1: x.ch["1m"], y1: x.ch["1y"] },
         high52: x.high52, low52: x.low52, dayHigh: x.dayHigh, dayLow: x.dayLow, volume: x.volume,
-        url: "https://finance.yahoo.com/quote/" + encodeURIComponent(x.symbol), mcap: null,
+        url: "https://www.tradingview.com/symbols/" + encodeURIComponent(x.symbol) + "/", mcap: null,
       };
       t.flags = evaluateStk(t);
       return t;
@@ -365,8 +365,8 @@
     $("#topList").innerHTML = list.length ? list.map(tokenRow).join("") : `<div class="empty">Sin datos de CoinGecko todavía.</div>`;
   }
 
-  const STK_GROUPS = ["Todos", "Índices", "EE. UU.", "España", "Materias y divisas", "ETF"];
   function renderStocks() {
+    const STK_GROUPS = ["Todos", ...new Set(state.stocks.map((t) => t.group))];
     $("#stkGroups").innerHTML = STK_GROUPS.map((g) => `<button class="chip${g === state.stkGroup ? " on" : ""}" data-g="${esc(g)}">${esc(g)}</button>`).join("");
     let list = state.stocks.slice();
     if (state.stkGroup !== "Todos") list = list.filter((t) => t.group === state.stkGroup);
@@ -376,9 +376,9 @@
     const key = { d1: (t) => t.ch.d1, drop: (t) => -(t.ch.d1 ?? 0), d5: (t) => t.ch.d5, m1: (t) => t.ch.m1 }[sort];
     if (key) list.sort((a, b) => (key(b) ?? -1e12) - (key(a) ?? -1e12));
     $("#stkUpdated").textContent = state.stocksUpdated
-      ? `Datos de Yahoo Finance, actualizados ${ago(state.stocksUpdated)}. Se renuevan cada 15 min en horario de mercado (con 15–30 min de retraso).` : "";
+      ? `Datos de Twelve Data, actualizados ${ago(state.stocksUpdated)}. Se renuevan cada 30 min en horario de EE. UU.` : "";
     $("#stkList").innerHTML = list.length ? list.map(tokenRow).join("")
-      : `<div class="empty">${state.stocksErr ? "Los datos de bolsa aún no están disponibles. Se generan en la próxima actualización (cada 15 min en horario de mercado)." : "Cargando bolsa…"}</div>`;
+      : `<div class="empty">${state.stocksErr ? "Aún no hay datos de bolsa. Se activan al guardar la clave TWELVEDATA_API_KEY en GitHub y llegan en la siguiente actualización." : "Cargando bolsa…"}</div>`;
   }
 
   function renderAlerts() {
@@ -486,7 +486,7 @@
       : [["Market cap", usd(t.mcap)], ["Ranking", "#" + t.rank], ["Vol 24h", usd(t.vol24h)], ["Máx 24h", A.fmt(t.high24)], ["Mín 24h", A.fmt(t.low24)], ["Desde ATH", pctS(t.athPct)]];
     $("#dStats").innerHTML = stats.map(([k, v]) => `<div><small>${k}</small><span>${esc(v)}</span></div>`).join("");
     const links = [];
-    if (t.url) links.push(`<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.kind === "dex" ? "DexScreener" : t.kind === "stk" ? "Yahoo Finance" : "CoinGecko"}</a>`);
+    if (t.url) links.push(`<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.kind === "dex" ? "DexScreener" : t.kind === "stk" ? "TradingView" : "CoinGecko"}</a>`);
     if (t.kind === "dex" && t.chain === "solana") links.push(`<a href="https://rugcheck.xyz/tokens/${encodeURIComponent(t.address)}" target="_blank" rel="noopener">RugCheck</a>`);
     if (t.kind === "dex") links.push(`<button id="copyAddr">Copiar contrato</button>`);
     $("#dLinks").innerHTML = links.join("");
@@ -620,7 +620,7 @@
       indicadores: r ? { rsi14: r.rsi && +r.rsi.toFixed(1), ema9: r.ema9, ema21: r.ema21, volatilidad_vela_pct: +r.atrPct.toFixed(2), soportes: r.supports, resistencias: r.resistances, max_periodo: r.rangeHigh, min_periodo: r.rangeLow, puntuacion_auto: r.score } : null,
       ultimas_velas_fecha_o_h_l_c_vol: lastC,
     };
-    return `Eres un analista de mercados (criptomonedas y bolsa). Analiza este activo con los datos de abajo (obtenidos recientemente de DexScreener/GeckoTerminal/CoinGecko o Yahoo Finance) y con lo que sepas de la empresa o proyecto, del sector, del contexto macro y del comportamiento típico de este tipo de activos.
+    return `Eres un analista de mercados (criptomonedas y bolsa). Analiza este activo con los datos de abajo (obtenidos recientemente de DexScreener/GeckoTerminal/CoinGecko o Twelve Data) y con lo que sepas de la empresa o proyecto, del sector, del contexto macro y del comportamiento típico de este tipo de activos.
 
 Responde en español, claro y directo, con estas secciones:
 1. Situación actual (2-3 frases).

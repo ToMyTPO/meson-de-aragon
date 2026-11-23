@@ -14,7 +14,7 @@ Dos piezas que trabajan juntas:
 |---|---|
 | **Radar** | Memecoins nuevos, promocionados y en tendencia (Solana, Base, Ethereum, BNB), actualizados cada 30 s. Marca pumps, dumps, picos de volumen y riesgos (token nuevo, liquidez baja, más ventas que compras). Barra verde/roja = compras vs ventas 1 h. |
 | **Cripto** | Las 100 mayores criptomonedas con cambios de 1 h, 24 h y 7 d. |
-| **Bolsa** | Índices (S&P 500, Nasdaq 100, Dow Jones, IBEX 35, DAX…, futuros ES y NQ, VIX), acciones de EE. UU. y España, oro, plata, petróleo, euro/dólar y ETF. Avisa cuando un índice se mueve ±1,5% en el día o una acción ±4%. Datos de Yahoo Finance renovados cada 15 min en horario de mercado (con 15–30 min de retraso). Para añadir o quitar valores, edita `bolsa.json` (símbolos de Yahoo Finance) o pídemelo. |
+| **Bolsa** | Tu lista de acciones (S&P 500 vía ETF SPY, Nvidia, IREN, FPS, TeraWulf, Butterfly, Ouster, Coherent, Nebius) con velas, lectura técnica y alertas (±4% en el día; ±1,5% en índices). Datos de **Twelve Data**: crea una clave gratis en twelvedata.com y guárdala como secreto `TWELVEDATA_API_KEY` en Settings → Secrets and variables → Actions. Se renuevan cada 30 min en horario de EE. UU. Para cambiar la lista edita `bolsa.json` (máximo ~20 valores con el plan gratis). |
 | **Alertas** | Historial de todo lo que ha saltado. Suena y manda notificación. |
 | **Ajustes** | Umbrales de subida/bajada, filtros anti-basura, sonido, notificaciones y API key de Claude. |
 
