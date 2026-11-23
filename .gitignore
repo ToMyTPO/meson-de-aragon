@@ -4,3 +4,4 @@ estado_alertas.json
 estado_alertas.json.tmp
 .env
 app/data/
+estado_bolsa.json

@@ -80,5 +80,19 @@ class TestBolsa(unittest.TestCase):
         self.assertEqual(len(llamadas), 3)
 
 
+class TestSenalBolsa(unittest.TestCase):
+    def test_ruptura_con_volumen(self):
+        hoy = (int(time.time()) // DIA) * DIA
+        diario = [[hoy - (100 - i) * DIA, 100 + i * 0.2, 101 + i * 0.2, 99 + i * 0.2, 100 + i * 0.2, 1000] for i in range(100)]
+        intra = [[hoy - DIA + 14 * 3600 + i * 900, 119, 119.5, 118.5, 119, 100] for i in range(20)]
+        intra += [[hoy + 14 * 3600 + i * 900, 121, 124, 120, 123, 400] for i in range(6)]
+        sig = bolsa.senal_bolsa(diario, intra, 123.0, 3.0)
+        self.assertGreaterEqual(sig["score"], 70)
+        self.assertIn("rompe el máximo de 20 días", sig["reasons"])
+
+    def test_sin_historial_no_puntua(self):
+        self.assertEqual(bolsa.senal_bolsa([], [], 1.0, 0)["score"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -107,6 +107,8 @@ button.ghost { background: transparent; color: var(--fg); border: 1px solid var(
 .alert.subida .stripe { background: var(--up); }
 .alert.bajada .stripe { background: var(--down); }
 .alert.volumen .stripe { background: var(--accent); }
+.alert.senal .stripe { background: var(--warn); }
+.tag.early { background: color-mix(in srgb, var(--warn) 25%, transparent); color: var(--warn); }
 .alert b { font-weight: 600; }
 .alert .meta { color: var(--muted); font-size: 12px; }
 .alert .why { font: 500 13px var(--f-mono); margin-top: 2px; }

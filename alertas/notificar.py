@@ -4,8 +4,9 @@ import os
 import urllib.parse
 import urllib.request
 
-ICONOS = {"subida": "🚀", "bajada": "🔻", "volumen": "📈"}
-TITULOS = {"subida": "SUBIDA FUERTE", "bajada": "BAJADA FUERTE", "volumen": "PICO DE VOLUMEN"}
+ICONOS = {"subida": "🚀", "bajada": "🔻", "volumen": "📈", "senal": "⚡"}
+TITULOS = {"subida": "SUBIDA FUERTE", "bajada": "BAJADA FUERTE", "volumen": "PICO DE VOLUMEN",
+           "senal": "SEÑAL TEMPRANA (posible inicio de subida)"}
 
 
 def _usd(x):
@@ -46,6 +47,8 @@ def formatear(m, alertas, riesgos):
         lineas.append(f"Compras/ventas 1h: {m['compras_1h']}/{m['ventas_1h']}")
     if riesgos:
         lineas.append("⚠️ " + "; ".join(riesgos))
+    if tipo == "senal":
+        lineas.append("ℹ️ Patrón que a menudo precede a subidas fuertes, pero muchas veces falla. No es una predicción.")
     if m.get("url"):
         lineas.append(m["url"])
     return "\n".join(lineas)

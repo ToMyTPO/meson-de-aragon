@@ -58,6 +58,57 @@ def velas(data):
     return sorted(out)
 
 
+def ema(vals, n):
+    k, out, prev = 2 / (n + 1), [], None
+    for v in vals:
+        prev = v if prev is None else v * k + prev * (1 - k)
+        out.append(prev)
+    return out
+
+
+def rsi(vals, n=14):
+    if len(vals) <= n:
+        return None
+    g = sum(max(vals[i] - vals[i - 1], 0) for i in range(1, n + 1)) / n
+    l = sum(max(vals[i - 1] - vals[i], 0) for i in range(1, n + 1)) / n
+    for i in range(n + 1, len(vals)):
+        d = vals[i] - vals[i - 1]
+        g = (g * (n - 1) + max(d, 0)) / n
+        l = (l * (n - 1) + max(-d, 0)) / n
+    return 100.0 if l == 0 else 100 - 100 / (1 + g / l)
+
+
+def senal_bolsa(diario, intradia, precio, ch1d):
+    """Puntúa de 0 a 100 patrones que suelen preceder a un movimiento alcista fuerte. No predice nada."""
+    if len(diario) < 50 or not intradia or not precio:
+        return {"score": 0, "reasons": []}
+    hoy = time.strftime("%Y-%m-%d", time.gmtime(intradia[-1][0]))
+    previos = [k for k in diario if time.strftime("%Y-%m-%d", time.gmtime(k[0])) != hoy]
+    puntos, motivos = 0, []
+    max20 = max(k[2] for k in previos[-20:])
+    if precio > max20:
+        puntos += 35; motivos.append("rompe el máximo de 20 días")
+    hoy_v = [k[5] for k in intradia if time.strftime("%Y-%m-%d", time.gmtime(k[0])) == hoy]
+    antes_v = [k[5] for k in intradia if time.strftime("%Y-%m-%d", time.gmtime(k[0])) != hoy and k[5]]
+    if len(hoy_v) >= 2 and antes_v:
+        media = sum(antes_v) / len(antes_v)
+        rec = sum(hoy_v[-4:]) / len(hoy_v[-4:])
+        if media and rec / media >= 2:
+            puntos += 25; motivos.append(f"volumen ×{rec / media:.1f} sobre lo normal")
+    if ch1d is not None and ch1d >= 2:
+        puntos += 15; motivos.append(f"{ch1d:+.1f}% hoy")
+    closes = [k[4] for k in previos] + [precio]
+    e20, e50 = ema(closes, 20)[-1], ema(closes, 50)[-1]
+    if precio > e20 > e50:
+        puntos += 15; motivos.append("tendencia alcista (precio > EMA20 > EMA50)")
+    r = rsi(closes)
+    if r is not None and 50 <= r <= 72:
+        puntos += 10
+    elif r is not None and r > 80:
+        puntos -= 15; motivos.append(f"RSI {r:.0f}: sobrecompra")
+    return {"score": max(0, min(100, puntos)), "reasons": motivos}
+
+
 def cambio(a, b):
     return round((a / b - 1) * 100, 2) if a and b else None
 
@@ -84,7 +135,35 @@ def resumen(sym, nombre, grupo, diario, intradia, meta):
         "high52": max((k[2] for k in anio), default=None), "low52": min((k[3] for k in anio), default=None),
         "dayHigh": max((k[2] for k in ultimo_dia), default=None), "dayLow": min((k[3] for k in ultimo_dia), default=None),
         "volume": sum(k[5] for k in ultimo_dia) or None,
+        "signal": senal_bolsa(diario, intradia, precio, cambio(precio, prev)),
     }
+
+
+def avisar_telegram(items, minimo=70):
+    """Envía a Telegram las señales tempranas de bolsa (una por valor y día)."""
+    if not os.environ.get("TELEGRAM_TOKEN"):
+        return
+    from .estado import Estado
+    from .notificar import enviar
+    estado = Estado(os.environ.get("ESTADO_BOLSA", "estado_bolsa.json"))
+    for it in items:
+        sig = it.get("signal") or {}
+        if sig.get("score", 0) < minimo:
+            continue
+        dia = time.strftime("%Y-%m-%d", time.gmtime(it["time"] or time.time()))
+        clave = f"{it['symbol']}|{dia}|senal"
+        if not estado.puede_avisar(clave, 24 * 60):
+            continue
+        ch = it["ch"]
+        enviar("\n".join([
+            f"⚡ SEÑAL TEMPRANA | {it['name']} ({it['symbol']})",
+            f"Puntuación {sig['score']}/100: " + "; ".join(sig["reasons"]),
+            f"Precio: {it['price']:.2f} {it.get('currency') or ''} | hoy {ch['1d']:+.1f}% | 5d {ch['5d'] or 0:+.1f}%",
+            "ℹ️ Patrón que a menudo precede a subidas fuertes, pero muchas veces falla. No es una predicción.",
+            f"https://www.tradingview.com/symbols/{it['symbol']}/",
+        ]))
+        estado.marcar(clave)
+    estado.guardar()
 
 
 def main(argv=None):
@@ -128,6 +207,7 @@ def main(argv=None):
             continue
         break
 
+    avisar_telegram(items)
     salida = {"updated": int(time.time()), "source": "Twelve Data", "items": items, "failed": fallos}
     with open(os.path.join(args.salida, "bolsa.json"), "w", encoding="utf-8") as f:
         json.dump(salida, f, ensure_ascii=False, separators=(",", ":"))

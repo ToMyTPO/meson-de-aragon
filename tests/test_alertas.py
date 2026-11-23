@@ -67,6 +67,33 @@ class TestReglas(unittest.TestCase):
         self.assertIn("$640.6K", txt)
 
 
+class TestSenalTemprana(unittest.TestCase):
+    def par(self, **kw):
+        p = dict(PAR, priceChange={"m5": 8, "h1": 20, "h6": 30, "h24": 40},
+                 volume={"m5": 40000, "h1": 120000, "h6": 300000, "h24": 900000},
+                 txns={"m5": {"buys": 90, "sells": 30}, "h1": {"buys": 500, "sells": 300}})
+        p.update(kw)
+        return fuentes.normalizar_par_dex(p)
+
+    def test_detecta_arranque(self):
+        puntos, motivos = reglas.senal_temprana(self.par())
+        self.assertGreaterEqual(puntos, 70)
+        al = reglas.evaluar(self.par(), {"senal_min": 70})
+        self.assertEqual(al[0][0], "senal")
+
+    def test_ya_inflado_no_es_senal_temprana(self):
+        m = self.par(priceChange={"m5": 8, "h1": 20, "h6": 300, "h24": 900})
+        self.assertLess(reglas.senal_temprana(m)[0], 70)
+
+    def test_sin_liquidez_no_puntua(self):
+        self.assertEqual(reglas.senal_temprana(self.par(liquidity={"usd": 5000}))[0], 0)
+
+    def test_aviso_inflado(self):
+        m = self.par(priceChange={"m5": -5, "h1": 150, "h6": 300, "h24": 400},
+                     txns={"m5": {"buys": 20, "sells": 80}, "h1": {"buys": 500, "sells": 300}})
+        self.assertTrue(any("inflado" in r for r in reglas.banderas_riesgo(m)))
+
+
 class TestCiclo(unittest.TestCase):
     def test_ciclo_y_enfriamiento(self):
         cfg = bot.cargar_config(os.path.join(bot.RAIZ, "config.json"))
