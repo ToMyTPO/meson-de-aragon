@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>BeyondVision</title>
-<meta name="description" content="Radar de memecoins y criptomonedas en vivo con alertas y análisis.">
+<meta name="description" content="Radar de memecoins, criptomonedas y bolsa con alertas y análisis.">
 <meta name="theme-color" content="#0a0e1a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -70,7 +70,24 @@
       </select>
       <input id="topSearch" placeholder="Buscar…" autocomplete="off">
     </div>
-    <div class="list" id="topList"><div class="empty">Cargando top 100…</div></div>
+    <div class="list" id="topList"><div class="empty">Cargando top 100 cripto…</div></div>
+  </section>
+
+  <!-- BOLSA -->
+  <section class="view" id="view-stocks" hidden>
+    <div class="toolbar">
+      <select id="stkSort" aria-label="Ordenar bolsa">
+        <option value="list">Orden de la lista</option>
+        <option value="d1">Mayor subida hoy</option>
+        <option value="drop">Mayor caída hoy</option>
+        <option value="d5">Mayor cambio 5 días</option>
+        <option value="m1">Mayor cambio 1 mes</option>
+      </select>
+      <input id="stkSearch" placeholder="Buscar…" autocomplete="off">
+    </div>
+    <div class="chips" id="stkGroups"></div>
+    <p class="hint" id="stkUpdated"></p>
+    <div class="list" id="stkList"><div class="empty">Cargando bolsa…</div></div>
   </section>
 
   <!-- ALERTAS -->
@@ -117,6 +134,11 @@
         <label class="row"><span>Movimiento en 24 h ≥ ±%</span><input type="number" id="s-top24h"></label>
       </fieldset>
       <fieldset>
+        <legend>Bolsa: cuándo avisar (cambio del día)</legend>
+        <label class="row"><span>Índices, materias y divisas ≥ ±%</span><input type="number" id="s-stkIdx" step="0.1"></label>
+        <label class="row"><span>Acciones y ETF ≥ ±%</span><input type="number" id="s-stk" step="0.1"></label>
+      </fieldset>
+      <fieldset>
         <legend>Análisis con IA (opcional)</legend>
         <p class="hint">Con una API key de Anthropic, el botón «Análisis IA» pide a Claude un análisis completo del token. La key se guarda solo en este dispositivo. Sin key puedes usar «Copiar para Claude» y pegarlo en la app de Claude.</p>
         <label class="col"><span>API key</span><input type="password" id="s-apiKey" placeholder="sk-ant-…" autocomplete="off"></label>
@@ -127,13 +149,14 @@
       </div>
       <p class="hint" id="savedMsg" hidden>Guardado.</p>
     </form>
-    <p class="hint small">Datos: DexScreener, GeckoTerminal y CoinGecko. Herramienta informativa, no es consejo financiero.</p>
+    <p class="hint small">Datos: DexScreener, GeckoTerminal, CoinGecko y Yahoo Finance (bolsa con unos 15–30 min de retraso). Herramienta informativa, no es consejo financiero.</p>
   </section>
 </main>
 
 <nav class="tabs" id="tabs">
   <button class="tab on" data-v="radar"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 12l6-6"/></svg>Radar</button>
-  <button class="tab" data-v="top"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Top</button>
+  <button class="tab" data-v="top"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Cripto</button>
+  <button class="tab" data-v="stocks"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-8M15 8h5v5"/></svg>Bolsa</button>
   <button class="tab" data-v="alerts"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1112 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"/></svg>Alertas<span class="badge" id="alertBadge" hidden>0</span></button>
   <button class="tab" data-v="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Ajustes</button>
 </nav>

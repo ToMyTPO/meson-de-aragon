@@ -25,6 +25,16 @@
     if (x >= 1e3) return "$" + (x / 1e3).toFixed(1) + "K";
     return A.fmt(x);
   };
+  const CUR = { USD: "$", EUR: "€", GBP: "£", JPY: "¥" };
+  const px = (t, x = t.price) => {
+    if (t.kind !== "stk") return A.fmt(x);
+    if (x == null) return "?";
+    const d = Math.abs(x) >= 1000 ? 0 : Math.abs(x) >= 10 ? 2 : 4;
+    const n = x.toLocaleString("es-ES", { minimumFractionDigits: d, maximumFractionDigits: d });
+    const sym = CUR[t.currency];
+    if (/=X$/.test(t.ticker || "") || /^\^/.test(t.ticker || "") || !t.currency) return n; // índices y divisas sin símbolo
+    return sym === "$" ? "$" + n : sym ? n + " " + sym : n + " " + t.currency;
+  };
   const pctS = (x) => (x == null ? "–" : (x >= 0 ? "+" : "") + x.toFixed(Math.abs(x) >= 100 ? 0 : 1) + "%");
   const cls = (x) => (x == null ? "muted" : x >= 0 ? "up" : "down");
   const ago = (ts) => {
@@ -58,7 +68,7 @@
     chain: "solana", refreshSec: 30, notify: true, sound: true, cooldownMin: 60,
     up5m: 25, up1h: 60, dn5m: -25, dn1h: -40, volX: 5, vol5mMin: 10000,
     liqMin: 15000, vol1hMin: 10000, ageMinH: 1,
-    top1h: 6, top24h: 20, apiKey: "",
+    top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, apiKey: "",
   };
   let S = Object.assign({}, DEFAULTS, store.get("settings", {}));
   let watch = store.get("watch", []); // [{chain, address, symbol}]
@@ -68,7 +78,7 @@
 
   // ------------------------------------------------------------ estado
   const state = {
-    view: "radar", radar: [], top: [], radarFilter: "all", lastOk: 0, lastErr: null,
+    view: "radar", radar: [], top: [], stocks: [], stocksUpdated: null, stocksErr: null, stkGroup: "Todos", radarFilter: "all", lastOk: 0, lastErr: null,
     flashed: new Set(), alerted: new Set(), detail: null, tf: null, chart: null,
   };
 
@@ -170,6 +180,27 @@
     state.top.forEach((t) => t.flags.length && fireAlerts(t, t.flags));
   }
 
+  // ------------------------------------------------------------ datos: bolsa
+  async function refreshStocks() {
+    const j = await getJSON("data/bolsa.json?t=" + Math.floor(Date.now() / 60000));
+    state.stocksUpdated = j.updated * 1000;
+    state.stocks = (j.items || []).map((x) => {
+      const named = x.group === "Índices" || x.group === "Materias y divisas";
+      const t = {
+        kind: "stk", id: "stk:" + x.symbol, ticker: x.symbol, file: x.file, group: x.group,
+        symbol: named ? x.name : x.symbol, name: named ? x.symbol : x.name,
+        price: x.price, currency: x.currency, exchange: x.exchange, time: x.time ? x.time * 1000 : null,
+        ch: { d1: x.ch["1d"], d5: x.ch["5d"], m1: x.ch["1m"], y1: x.ch["1y"] },
+        high52: x.high52, low52: x.low52, dayHigh: x.dayHigh, dayLow: x.dayLow, volume: x.volume,
+        url: "https://finance.yahoo.com/quote/" + encodeURIComponent(x.symbol), mcap: null,
+      };
+      t.flags = evaluateStk(t);
+      return t;
+    });
+    state.stocksErr = null;
+    state.stocks.forEach((t) => t.flags.length && fireAlerts(t, t.flags));
+  }
+
   // ------------------------------------------------------------ reglas
   function evaluateDex(t) {
     const f = [];
@@ -193,6 +224,16 @@
     if (t.ch.h24 != null && Math.abs(t.ch.h24) >= S.top24h)
       f.push([t.ch.h24 > 0 ? "subida_24h" : "bajada_24h", t.ch.h24 > 0 ? "subida" : "bajada", `${pctS(t.ch.h24)} en 24 h`]);
     return f;
+  }
+
+  function evaluateStk(t) {
+    const th = t.group === "Índices" || t.group === "Materias y divisas" ? S.stkIdx : S.stk;
+    const v = t.ch.d1;
+    if (v == null || Math.abs(v) < th) return [];
+    // Un aviso por día y por escalón (p. ej. -4%, luego -8%)
+    const day = new Date(t.time || Date.now()).toISOString().slice(0, 10);
+    const step = Math.floor(Math.abs(v) / th);
+    return [[`d1_${day}_${v > 0 ? "up" : "dn"}${step}`, v > 0 ? "subida" : "bajada", `${pctS(v)} hoy`]];
   }
 
   function riskTags(t) {
@@ -236,14 +277,15 @@
     const now = Date.now();
     const fresh = flags.filter(([key]) => {
       const k = `${t.id}|${key}`;
-      return !cooldown[k] || now - cooldown[k] >= S.cooldownMin * 60000;
+      const cd = key.startsWith("d1_") ? 1440 : S.cooldownMin;
+      return !cooldown[k] || now - cooldown[k] >= cd * 60000;
     });
     if (!fresh.length) return;
     fresh.forEach(([key]) => (cooldown[`${t.id}|${key}`] = now));
     const type = fresh[0][1];
     const reason = fresh.map((f) => f[2]).join(" · ");
     const a = {
-      ts: now, id: t.id, kind: t.kind, chain: t.chain, address: t.address, cgId: t.cgId,
+      ts: now, id: t.id, kind: t.kind, chain: t.chain, address: t.address, cgId: t.cgId, currency: t.currency, ticker: t.ticker,
       name: t.name, symbol: t.symbol, type, reason, price: t.price, mcap: t.mcap, risks: riskTags(t),
     };
     alerts.unshift(a);
@@ -252,7 +294,7 @@
     if (state.view !== "alerts") unseen++;
     const icon = type === "subida" ? "🚀" : type === "bajada" ? "🔻" : "📈";
     const title = `${icon} ${t.symbol} ${type === "subida" ? "sube" : type === "bajada" ? "cae" : "volumen"}: ${reason}`;
-    const body = `${t.name} · ${A.fmt(t.price)} · MC ${usd(t.mcap)}${a.risks.length ? " · ⚠️ " + a.risks.join(", ") : ""}`;
+    const body = `${t.name} · ${px(t)}${t.mcap ? " · MC " + usd(t.mcap) : ""}${a.risks.length ? " · ⚠️ " + a.risks.join(", ") : ""}`;
     notify(title, body, t.id);
     beep(type);
     persistAlerts();
@@ -277,21 +319,25 @@
       if (type === "bajada" && !tags.includes("down")) tags.push("down");
       if (type === "volumen" && !tags.includes("vol")) tags.push("vol");
     });
-    const tagHtml = tags.map((x) => `<span class="tag ${x}">${x === "up" ? "pump" : x === "down" ? "dump" : "vol"}</span>`).join("")
+    const stk = t.kind === "stk";
+    const tagHtml = tags.map((x) => `<span class="tag ${x}">${x === "up" ? (stk ? "sube" : "pump") : x === "down" ? (stk ? "cae" : "dump") : "vol"}</span>`).join("")
       + riskTags(t).map((r) => `<span class="tag risk">${esc(r)}</span>`).join("");
     const pressure = t.buys1h != null && t.sells1h != null && t.buys1h + t.sells1h > 0
       ? `<div class="pbar"><i style="width:${(100 * t.buys1h / (t.buys1h + t.sells1h)).toFixed(0)}%"></i></div>` : "";
     const sub = t.kind === "dex"
       ? `MC ${usd(t.mcap)} · Liq ${usd(t.liq)} · Vol 1h ${usd(t.vol1h)} · ${age(t.ageH)}`
+      : stk ? `${esc(t.exchange || t.group)}`
       : `#${t.rank} · MC ${usd(t.mcap)} · Vol 24h ${usd(t.vol24h)}`;
-    const chg = t.kind === "dex"
+    const chg = stk
+      ? `<span class="${cls(t.ch.d1)}"><em>hoy</em>${pctS(t.ch.d1)}</span><span class="${cls(t.ch.d5)}"><em>5d</em>${pctS(t.ch.d5)}</span><span class="${cls(t.ch.m1)}"><em>1m</em>${pctS(t.ch.m1)}</span>`
+      : t.kind === "dex"
       ? `<span class="${cls(t.ch.m5)}"><em>5m</em>${pctS(t.ch.m5)}</span><span class="${cls(t.ch.h1)}"><em>1h</em>${pctS(t.ch.h1)}</span><span class="${cls(t.ch.h24)}"><em>24h</em>${pctS(t.ch.h24)}</span>`
       : `<span class="${cls(t.ch.h1)}"><em>1h</em>${pctS(t.ch.h1)}</span><span class="${cls(t.ch.h24)}"><em>24h</em>${pctS(t.ch.h24)}</span><span class="${cls(t.ch.d7)}"><em>7d</em>${pctS(t.ch.d7)}</span>`;
     const flash = state.flashed.has(t.id) ? " flash" : "";
     return `<button class="row-t${flash}" data-id="${esc(t.id)}">
       ${avatar(t)}
       <span class="name"><b>${isWatched(t) ? "★ " : ""}<span class="sym">${esc(t.symbol)}</span>${tagHtml}</b><small>${esc(t.name)} · ${sub}</small>${pressure}</span>
-      <span class="right"><span class="p">${A.fmt(t.price)}</span><span class="changes">${chg}</span></span>
+      <span class="right"><span class="p">${px(t)}</span><span class="changes">${chg}</span></span>
     </button>`;
   }
 
@@ -319,13 +365,29 @@
     $("#topList").innerHTML = list.length ? list.map(tokenRow).join("") : `<div class="empty">Sin datos de CoinGecko todavía.</div>`;
   }
 
+  const STK_GROUPS = ["Todos", "Índices", "EE. UU.", "España", "Materias y divisas", "ETF"];
+  function renderStocks() {
+    $("#stkGroups").innerHTML = STK_GROUPS.map((g) => `<button class="chip${g === state.stkGroup ? " on" : ""}" data-g="${esc(g)}">${esc(g)}</button>`).join("");
+    let list = state.stocks.slice();
+    if (state.stkGroup !== "Todos") list = list.filter((t) => t.group === state.stkGroup);
+    const q = $("#stkSearch").value.trim().toLowerCase();
+    if (q) list = list.filter((t) => (t.name + " " + t.symbol + " " + t.ticker).toLowerCase().includes(q));
+    const sort = $("#stkSort").value;
+    const key = { d1: (t) => t.ch.d1, drop: (t) => -(t.ch.d1 ?? 0), d5: (t) => t.ch.d5, m1: (t) => t.ch.m1 }[sort];
+    if (key) list.sort((a, b) => (key(b) ?? -1e12) - (key(a) ?? -1e12));
+    $("#stkUpdated").textContent = state.stocksUpdated
+      ? `Datos de Yahoo Finance, actualizados ${ago(state.stocksUpdated)}. Se renuevan cada 15 min en horario de mercado (con 15–30 min de retraso).` : "";
+    $("#stkList").innerHTML = list.length ? list.map(tokenRow).join("")
+      : `<div class="empty">${state.stocksErr ? "Los datos de bolsa aún no están disponibles. Se generan en la próxima actualización (cada 15 min en horario de mercado)." : "Cargando bolsa…"}</div>`;
+  }
+
   function renderAlerts() {
     $("#alertList").innerHTML = alerts.length ? alerts.map((a, i) => `
       <button class="alert ${esc(a.type)}" data-alert="${i}">
         <span class="stripe"></span>
         <span><b>${esc(a.symbol)}</b> <span class="muted">${esc(a.name)}</span>
           <div class="why ${a.type === "subida" ? "up" : a.type === "bajada" ? "down" : ""}">${esc(a.reason)}</div>
-          <div class="meta">${ago(a.ts)} · ${A.fmt(a.price)} · MC ${usd(a.mcap)}${a.chain ? " · " + esc(a.chain) : ""}${a.risks?.length ? " · ⚠️ " + esc(a.risks.join(", ")) : ""}</div>
+          <div class="meta">${ago(a.ts)} · ${px({ kind: a.kind, currency: a.currency, ticker: a.ticker || "" }, a.price)}${a.mcap ? " · MC " + usd(a.mcap) : ""}${a.chain ? " · " + esc(a.chain) : ""}${a.risks?.length ? " · ⚠️ " + esc(a.risks.join(", ")) : ""}</div>
         </span>
       </button>`).join("")
       : `<div class="empty">Aún no hay alertas. Cuando un token pase tus umbrales aparecerá aquí y sonará un aviso.</div>`;
@@ -348,6 +410,7 @@
   function renderAll() {
     if (state.view === "radar") renderRadar();
     if (state.view === "top") renderTop();
+    if (state.view === "stocks") renderStocks();
     if (state.view === "alerts") renderAlerts();
     renderBadge(); renderLive();
     state.flashed.clear();
@@ -361,6 +424,7 @@
     try {
       await refreshRadar();
       if (cycle % 4 === 0) await refreshTop().catch((e) => console.warn("CoinGecko", e));
+      if (cycle % 2 === 0) await refreshStocks().catch((e) => { state.stocksErr = e.message; });
       state.lastOk = Date.now(); state.lastErr = null;
     } catch (e) {
       state.lastErr = e.message || String(e);
@@ -379,14 +443,15 @@
   // ------------------------------------------------------------ detalle
   const TF_DEX = [["1m", "minute", 1], ["5m", "minute", 5], ["15m", "minute", 15], ["1h", "hour", 1], ["4h", "hour", 4], ["1D", "day", 1]];
   const TF_CG = [["30m", 1], ["4h", 14], ["4D", 180]];
+  const TF_STK = ["15m", "1h", "1D"];
 
   function findToken(id) {
-    return state.radar.find((t) => t.id === id) || state.top.find((t) => t.id === id) || (state.detail?.id === id ? state.detail : null);
+    return state.radar.find((t) => t.id === id) || state.top.find((t) => t.id === id) || state.stocks.find((t) => t.id === id) || (state.detail?.id === id ? state.detail : null);
   }
 
   async function openDetail(t) {
     state.detail = t;
-    state.tf = t.kind === "dex" ? "5m" : "30m";
+    state.tf = t.kind === "dex" ? "5m" : t.kind === "stk" ? "1D" : "30m";
     $("#sheet").hidden = false;
     document.body.style.overflow = "hidden";
     $("#aiOut").hidden = true; $("#aiOut").textContent = "";
@@ -406,19 +471,22 @@
     const live = findToken(state.detail.id);
     if (live) state.detail = live;
     const t = state.detail;
-    $("#dTitle").innerHTML = `<b>${esc(t.symbol)}</b><small>${esc(t.name)}${t.chain ? " · " + esc(t.chain) : t.rank ? " · #" + t.rank : ""}</small>`;
+    $("#dTitle").innerHTML = `<b>${esc(t.symbol)}</b><small>${esc(t.name)}${t.chain ? " · " + esc(t.chain) : t.rank ? " · #" + t.rank : t.exchange ? " · " + esc(t.exchange) : ""}</small>`;
     $("#dStar").classList.toggle("on", t.kind === "dex" && isWatched(t));
     $("#dStar").hidden = t.kind !== "dex";
     const ch = t.kind === "dex"
       ? [["5m", t.ch.m5], ["1h", t.ch.h1], ["6h", t.ch.h6], ["24h", t.ch.h24]]
+      : t.kind === "stk" ? [["hoy", t.ch.d1], ["5d", t.ch.d5], ["1m", t.ch.m1], ["1a", t.ch.y1]]
       : [["1h", t.ch.h1], ["24h", t.ch.h24], ["7d", t.ch.d7]];
-    $("#dPrice").innerHTML = `<div class="big">${A.fmt(t.price)}</div><div class="changes">${ch.map(([k, v]) => `<span class="${cls(v)}"><em>${k}</em> ${pctS(v)}</span>`).join("")}</div>`;
-    const stats = t.kind === "dex"
+    $("#dPrice").innerHTML = `<div class="big">${px(t)}</div><div class="changes">${ch.map(([k, v]) => `<span class="${cls(v)}"><em>${k}</em> ${pctS(v)}</span>`).join("")}</div>`;
+    const stats = t.kind === "stk"
+      ? [["Máx hoy", px(t, t.dayHigh)], ["Mín hoy", px(t, t.dayLow)], ["Volumen", t.volume ? t.volume.toLocaleString("es-ES") : "–"], ["Máx 52 sem", px(t, t.high52)], ["Mín 52 sem", px(t, t.low52)], ["Cotización", t.time ? ago(t.time) : "?"]]
+      : t.kind === "dex"
       ? [["Market cap", usd(t.mcap)], ["Liquidez", usd(t.liq)], ["Vol 1h", usd(t.vol1h)], ["Vol 24h", usd(t.vol24h)], ["Compras/ventas 1h", `${t.buys1h ?? "?"}/${t.sells1h ?? "?"}`], ["Edad", age(t.ageH)]]
       : [["Market cap", usd(t.mcap)], ["Ranking", "#" + t.rank], ["Vol 24h", usd(t.vol24h)], ["Máx 24h", A.fmt(t.high24)], ["Mín 24h", A.fmt(t.low24)], ["Desde ATH", pctS(t.athPct)]];
     $("#dStats").innerHTML = stats.map(([k, v]) => `<div><small>${k}</small><span>${esc(v)}</span></div>`).join("");
     const links = [];
-    if (t.url) links.push(`<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.kind === "dex" ? "DexScreener" : "CoinGecko"}</a>`);
+    if (t.url) links.push(`<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.kind === "dex" ? "DexScreener" : t.kind === "stk" ? "Yahoo Finance" : "CoinGecko"}</a>`);
     if (t.kind === "dex" && t.chain === "solana") links.push(`<a href="https://rugcheck.xyz/tokens/${encodeURIComponent(t.address)}" target="_blank" rel="noopener">RugCheck</a>`);
     if (t.kind === "dex") links.push(`<button id="copyAddr">Copiar contrato</button>`);
     $("#dLinks").innerHTML = links.join("");
@@ -428,7 +496,7 @@
 
   function renderTfs() {
     const t = state.detail;
-    const tfs = t.kind === "dex" ? TF_DEX.map((x) => x[0]) : TF_CG.map((x) => x[0]);
+    const tfs = t.kind === "dex" ? TF_DEX.map((x) => x[0]) : t.kind === "stk" ? TF_STK : TF_CG.map((x) => x[0]);
     $("#tfs").innerHTML = tfs.map((x) => `<button data-tf="${x}" class="${x === state.tf ? "on" : ""}">${x}</button>`).join("");
   }
 
@@ -440,6 +508,21 @@
       const j = await getJSON(`${API.gt}/networks/${net}/pools/${t.pair}/ohlcv/${unit}?aggregate=${agg}&limit=300&currency=usd`);
       const list = j?.data?.attributes?.ohlcv_list || [];
       return list.map((k) => ({ time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] })).sort((a, b) => a.time - b.time);
+    }
+    if (t.kind === "stk") {
+      const j = await getJSON(`data/velas/${encodeURIComponent(t.file)}.json?t=${Math.floor(Date.now() / 60000)}`);
+      let list = (tf === "1D" ? j["1D"] : j["15m"]) || [];
+      list = list.map((k) => ({ time: k[0], open: k[1], high: k[2], low: k[3], close: k[4], volume: k[5] }));
+      if (tf === "1h") { // agrupar velas de 15 min en horas
+        const m = new Map();
+        list.forEach((k) => {
+          const h = Math.floor(k.time / 3600) * 3600, c = m.get(h);
+          if (!c) m.set(h, { ...k, time: h });
+          else { c.high = Math.max(c.high, k.high); c.low = Math.min(c.low, k.low); c.close = k.close; c.volume += k.volume; }
+        });
+        list = [...m.values()];
+      }
+      return list.sort((a, b) => a.time - b.time);
     }
     const [, days] = TF_CG.find((x) => x[0] === tf);
     const list = await getJSON(`${API.cg}/coins/${encodeURIComponent(t.cgId)}/ohlc?vs_currency=usd&days=${days}`);
@@ -455,7 +538,7 @@
     $("#reading").innerHTML = "";
     let candles;
     try { candles = await fetchCandles(t, tf); }
-    catch (e) { box.innerHTML = `<div class="empty">No se pudieron cargar las velas (${esc(e.message)}).${t.url ? ` <a href="${esc(t.url)}" target="_blank" rel="noopener">Ver en ${t.kind === "dex" ? "DexScreener" : "CoinGecko"}</a>` : ""}</div>`; return; }
+    catch (e) { box.innerHTML = `<div class="empty">No se pudieron cargar las velas (${esc(e.message)}).${t.url ? ` <a href="${esc(t.url)}" target="_blank" rel="noopener">Ver gráfico externo</a>` : ""}</div>`; return; }
     if (state.detail !== t || state.tf !== tf) return;
     if (!candles.length) { box.innerHTML = `<div class="empty">Sin velas para este periodo.</div>`; return; }
     state.candles = candles;
@@ -527,7 +610,8 @@
     const t = state.detail, r = state.reading, c = state.candles || [];
     const lastC = c.slice(-60).map((k) => [new Date(k.time * 1000).toISOString().slice(5, 16), +k.open.toPrecision(5), +k.high.toPrecision(5), +k.low.toPrecision(5), +k.close.toPrecision(5), Math.round(k.volume)]);
     const data = {
-      token: { nombre: t.name, simbolo: t.symbol, red: t.chain || null, contrato: t.address || null, ranking: t.rank || null },
+      activo: { tipo: t.kind === "stk" ? "bolsa (" + t.group + ")" : t.kind === "dex" ? "memecoin / token DEX" : "criptomoneda", nombre: t.name, simbolo: t.symbol, ticker: t.ticker || null, mercado: t.exchange || null, divisa: t.currency || "USD", red: t.chain || null, contrato: t.address || null, ranking: t.rank || null },
+      max_min_52_semanas: t.kind === "stk" ? [t.high52, t.low52] : undefined,
       precio_usd: t.price, cambios_pct: t.ch, market_cap: t.mcap, liquidez_usd: t.liq ?? null,
       volumen: { "5m": t.vol5m ?? null, "1h": t.vol1h ?? null, "24h": t.vol24h ?? null },
       transacciones_1h: t.buys1h != null ? { compras: t.buys1h, ventas: t.sells1h } : null,
@@ -536,14 +620,14 @@
       indicadores: r ? { rsi14: r.rsi && +r.rsi.toFixed(1), ema9: r.ema9, ema21: r.ema21, volatilidad_vela_pct: +r.atrPct.toFixed(2), soportes: r.supports, resistencias: r.resistances, max_periodo: r.rangeHigh, min_periodo: r.rangeLow, puntuacion_auto: r.score } : null,
       ultimas_velas_fecha_o_h_l_c_vol: lastC,
     };
-    return `Eres un analista de trading de criptomonedas. Analiza este token con los datos de abajo (obtenidos hace segundos de DexScreener/GeckoTerminal/CoinGecko) y con lo que sepas del proyecto, del sector y del comportamiento típico de este tipo de activos.
+    return `Eres un analista de mercados (criptomonedas y bolsa). Analiza este activo con los datos de abajo (obtenidos recientemente de DexScreener/GeckoTerminal/CoinGecko o Yahoo Finance) y con lo que sepas de la empresa o proyecto, del sector, del contexto macro y del comportamiento típico de este tipo de activos.
 
 Responde en español, claro y directo, con estas secciones:
 1. Situación actual (2-3 frases).
 2. Lectura de las velas: tendencia, estructura, volumen, momentum.
 3. Niveles clave (soportes/resistencias) con precio.
 4. Escenarios para las próximas horas: alcista, lateral y bajista, cada uno con condición, objetivo, invalidación y una probabilidad aproximada que sume 100%.
-5. Riesgos específicos (liquidez, rug, concentración, narrativa, sobreextensión).
+5. Riesgos específicos según el tipo de activo (en cripto: liquidez, rug, concentración, narrativa; en bolsa: resultados, macro, tipos de interés, sector, sobreextensión).
 6. Qué vigilar ahora.
 No inventes datos que no estén aquí; si algo no se puede saber, dilo. Termina con una línea recordando que no es consejo financiero.
 
@@ -606,7 +690,7 @@ ${JSON.stringify(data)}`;
   }
 
   // ------------------------------------------------------------ ajustes UI
-  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "apiKey"];
+  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "stkIdx", "stk", "apiKey"];
   const MAP = { refresh: "refreshSec", cooldown: "cooldownMin" };
   function fillSettings() {
     FIELDS.forEach((f) => {
@@ -661,6 +745,16 @@ ${JSON.stringify(data)}`;
       tick();
     });
     $("#topSort").addEventListener("change", renderTop);
+    $("#stkSort").addEventListener("change", renderStocks);
+    $("#stkSearch").addEventListener("input", renderStocks);
+    $("#stkGroups").addEventListener("click", (e) => {
+      const b = e.target.closest(".chip"); if (!b) return;
+      state.stkGroup = b.dataset.g; renderStocks();
+    });
+    $("#stkList").addEventListener("click", (e) => {
+      const row = e.target.closest(".row-t"); if (!row) return;
+      const t = findToken(row.dataset.id); if (t) openDetail(t);
+    });
     $("#topSearch").addEventListener("input", renderTop);
     const openFrom = (e) => {
       const row = e.target.closest(".row-t"); if (!row) return;
@@ -712,6 +806,7 @@ ${JSON.stringify(data)}`;
       e.preventDefault(); readSettings(); schedule();
       state.radar.forEach((t) => (t.flags = evaluateDex(t)));
       state.top.forEach((t) => (t.flags = evaluateTop(t)));
+      state.stocks.forEach((t) => (t.flags = evaluateStk(t)));
       $("#savedMsg").hidden = false; setTimeout(() => ($("#savedMsg").hidden = true), 2000);
       if (S.notify && "Notification" in window && Notification.permission === "default") askNotify();
     });
@@ -726,5 +821,5 @@ ${JSON.stringify(data)}`;
   renderAll();
   tick();
   schedule();
-  window.BV = { state, evaluateDex, evaluateTop, normPair }; // para pruebas
+  window.BV = { state, evaluateDex, evaluateTop, evaluateStk, normPair }; // para pruebas
 })();

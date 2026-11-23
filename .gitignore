@@ -3,3 +3,4 @@ __pycache__/
 estado_alertas.json
 estado_alertas.json.tmp
 .env
+app/data/

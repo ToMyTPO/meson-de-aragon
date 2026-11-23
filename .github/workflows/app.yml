@@ -3,7 +3,12 @@ name: Publicar app
 on:
   push:
     branches: [main]
-    paths: ["app/**", ".github/workflows/app.yml"]
+    paths: ["app/**", "alertas/bolsa.py", "bolsa.json", ".github/workflows/app.yml"]
+  schedule:
+    # Datos de bolsa cada 15 min en horario de mercado (Europa + EE. UU., hora UTC), lunes a viernes
+    - cron: "*/15 7-21 * * 1-5"
+    # Una vez cada 6 horas el resto del tiempo (cierres, Asia)
+    - cron: "7 */6 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -18,6 +23,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -26,8 +32,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Pruebas del motor de análisis
         run: node --test tests/analysis.test.js
+      - name: Descargar datos de bolsa
+        continue-on-error: true   # si falla, la app se publica igual (la pestaña Bolsa avisa)
+        run: python -m alertas.bolsa --lista bolsa.json --salida app/data
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
