@@ -61,6 +61,31 @@ def recoger(cfg, ciclo):
     return unicos
 
 
+def giros(cfg, estado, monedas, dry_run):
+    """Confirma con velas de 5 min el giro alcista de los mejores candidatos de todo el radar."""
+    if not cfg.get("giro_alcista", {}).get("activo", True):
+        return 0
+    from .bolsa import giro_alcista
+    cands = sorted(((reglas.candidato_giro(m), m) for m, _ in monedas), key=lambda x: -x[0])
+    n = 0
+    for puntos, m in [c for c in cands if c[0] > 0][: cfg.get("giro_alcista", {}).get("max_por_ciclo", 5)]:
+        clave = f"{m['id']}|giro"
+        if not estado.puede_avisar(clave, 120):
+            continue
+        try:
+            g = giro_alcista(fuentes.velas_5m(m["cadena"], m.get("par")))
+        except RuntimeError as e:
+            print(f"[aviso] {e}")
+            continue
+        if not g["turn"]:
+            continue
+        enviar(formatear(m, [("giro", "giro", f"giro alcista {g['score']}/100: " + ", ".join(g["reasons"]))],
+                         reglas.banderas_riesgo(m)), dry_run=dry_run)
+        estado.marcar(clave)
+        n += 1
+    return n
+
+
 def ciclo_unico(cfg, estado, ciclo, dry_run):
     monedas = recoger(cfg, ciclo)
     enfriamiento = cfg.get("enfriamiento_minutos", 60)
@@ -77,6 +102,7 @@ def ciclo_unico(cfg, estado, ciclo, dry_run):
         if enviados >= cfg.get("max_avisos_por_ciclo", 15):
             print("[aviso] límite de avisos por ciclo alcanzado")
             break
+    enviados += giros(cfg, estado, monedas, dry_run)
     estado.guardar()
     print(f"[{time.strftime('%H:%M:%S')}] ciclo {ciclo}: {len(monedas)} monedas revisadas, "
           f"{enviados} avisos", flush=True)

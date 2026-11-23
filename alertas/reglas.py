@@ -92,6 +92,25 @@ def senal_temprana(m):
     return max(0, min(100, puntos) - castigo), motivos
 
 
+def candidato_giro(m):
+    """Filtro rápido: venía cayendo y ahora sube en 5 min con compras y volumen. 0 = no es candidato."""
+    if m["fuente"] != "dex":
+        return 0
+    p5, p1, p6 = (m["cambio"].get(k) for k in ("5m", "1h", "6h"))
+    cayo = (p1 is not None and p1 < 0) or (p6 is not None and p6 < -5)
+    if not cayo or p5 is None or p5 < 1.5:
+        return 0
+    s = p5
+    c5, v5 = m.get("compras_5m"), m.get("ventas_5m")
+    if c5 is not None and v5 is not None:
+        if c5 <= v5 * 1.2:
+            return 0
+        s += 10 * min(3, c5 / max(1, v5))
+    if m["vol_5m"] and m["vol_1h"]:
+        s += 10 * min(3, m["vol_5m"] / (m["vol_1h"] / 12))
+    return s
+
+
 def banderas_riesgo(m):
     """Señales de riesgo visibles con los datos públicos (no garantizan nada)."""
     b = []

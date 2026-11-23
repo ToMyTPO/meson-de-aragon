@@ -65,5 +65,9 @@
       "volumen_5m_min_usd": 2000,
       "senal_min": 45
     }
+  },
+  "giro_alcista": {
+    "activo": true,
+    "max_por_ciclo": 5
   }
 }

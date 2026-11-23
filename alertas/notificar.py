@@ -4,9 +4,9 @@ import os
 import urllib.parse
 import urllib.request
 
-ICONOS = {"subida": "🚀", "bajada": "🔻", "volumen": "📈", "senal": "⚡"}
+ICONOS = {"subida": "🚀", "bajada": "🔻", "volumen": "📊", "senal": "⚡", "giro": "📈"}
 TITULOS = {"subida": "SUBIDA FUERTE", "bajada": "BAJADA FUERTE", "volumen": "PICO DE VOLUMEN",
-           "senal": "SEÑAL TEMPRANA (posible inicio de subida)"}
+           "senal": "SEÑAL TEMPRANA (posible inicio de subida)", "giro": "EMPIEZA A SUBIR (giro alcista en 5 min)"}
 
 
 def _usd(x):

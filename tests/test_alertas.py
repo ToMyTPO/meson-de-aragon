@@ -108,6 +108,27 @@ class TestDescubrimiento(unittest.TestCase):
         self.assertEqual(r["solana"], {"DEX1", "GT1"})
 
 
+class TestGiroMemecoins(unittest.TestCase):
+    def test_candidato_y_aviso(self):
+        p = dict(PAR, priceChange={"m5": 4, "h1": -12, "h6": -30, "h24": -20},
+                 volume={"m5": 20000, "h1": 120000, "h6": 300000, "h24": 900000},
+                 txns={"m5": {"buys": 60, "sells": 20}, "h1": {"buys": 300, "sells": 400}})
+        m = fuentes.normalizar_par_dex(p)
+        self.assertGreater(reglas.candidato_giro(m), 0)
+        sube = fuentes.normalizar_par_dex(PAR)  # sube fuerte, no venía cayendo
+        self.assertEqual(reglas.candidato_giro(sube), 0)
+        precios = [100 - i * 0.5 for i in range(25)] + [88.2, 87.9, 88.3, 88.0, 88.4, 88.1, 88.6, 89.4, 90.3]
+        velas = [[i * 300, precios[i - 1] if i else p_, max(precios[i - 1] if i else p_, p_) + 0.1,
+                  min(precios[i - 1] if i else p_, p_) - 0.1, p_, 100] for i, p_ in enumerate(precios)]
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(fuentes, "velas_5m", return_value=velas), \
+                mock.patch.object(bot, "enviar") as enviar:
+            estado = Estado(os.path.join(d, "e.json"))
+            n = bot.giros({}, estado, [(m, {})], dry_run=True)
+            self.assertEqual(n, 1)
+            self.assertIn("EMPIEZA A SUBIR", enviar.call_args.args[0])
+            self.assertEqual(bot.giros({}, estado, [(m, {})], dry_run=True), 0)  # enfriamiento
+
+
 class TestCiclo(unittest.TestCase):
     def test_ciclo_y_enfriamiento(self):
         cfg = bot.cargar_config(os.path.join(bot.RAIZ, "config.json"))
