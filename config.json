@@ -25,7 +25,7 @@
       },
       "volumen_x": 5,
       "volumen_5m_min_usd": 10000,
-      "senal_min": 70
+      "senal_min": 55
     }
   },
   "top_coins": {
@@ -63,7 +63,7 @@
       },
       "volumen_x": 4,
       "volumen_5m_min_usd": 2000,
-      "senal_min": 60
+      "senal_min": 45
     }
   }
 }

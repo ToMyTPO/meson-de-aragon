@@ -169,6 +169,30 @@
     };
   }
 
+  /* Giro alcista: el precio deja de caer y empieza a subir (velas cortas).
+     Devuelve {score 0-100, turn, reasons}. turn = true si score >= 50 y el precio está sobre la EMA9. */
+  function bullishTurn(c) {
+    if (!c || c.length < 30) return { score: 0, turn: false, reasons: [] };
+    const closes = c.map((k) => k.close);
+    const e9 = ema(closes, 9), e21 = ema(closes, 21), r = rsi(closes, 14);
+    const n = c.length - 1, reasons = [];
+    let score = 0;
+    const crossed = (a, b, look) => { for (let i = n - look + 1; i <= n; i++) if (a[i] > b[i] && a[i - 1] <= b[i - 1]) return true; return false; };
+    if (crossed(e9, e21, 3)) { score += 30; reasons.push("la media rápida cruza al alza la lenta"); }
+    const below = closes.slice(n - 6, n - 1).filter((x, i) => x < e9[n - 6 + i]).length;
+    if (closes[n] > e9[n] && below >= 3) { score += 25; reasons.push("recupera su media corta tras caer"); }
+    if (r[n] != null && r[n] > 50 && r.slice(n - 3, n).some((x) => x != null && x <= 50)) { score += 20; reasons.push(`RSI cruza 50 (${r[n].toFixed(0)})`); }
+    else if (r[n] != null && r[n - 3] != null && r[n - 3] < 40 && r[n] - r[n - 3] >= 15) { score += 20; reasons.push(`RSI girando al alza (${r[n - 3].toFixed(0)}→${r[n].toFixed(0)})`); }
+    if (e9[n] > e9[n - 1] && e9[n - 1] > e9[n - 2] && e9[n - 3] <= e9[n - 4]) { score += 15; reasons.push("la media corta empieza a apuntar arriba"); }
+    const last = c[n], prev = c[n - 1];
+    if (last.close > last.open && last.close > prev.high) { score += 15; reasons.push("vela verde que supera el máximo anterior"); }
+    const lows = pivots(c.slice(-40), 2).lows.slice(-2);
+    if (lows.length === 2 && lows[1].price > lows[0].price) { score += 15; reasons.push("mínimo más alto"); }
+    if (r[n] != null && r[n] > 75) { score -= 20; reasons.push("ya en sobrecompra"); }
+    score = Math.max(0, Math.min(100, score));
+    return { score, turn: score >= 50 && closes[n] > e9[n], reasons };
+  }
+
   function fmt(x) {
     if (x == null || !isFinite(x)) return "?";
     if (x >= 1000) return "$" + x.toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -179,7 +203,7 @@
   }
   function signed(p) { return (p >= 0 ? "+" : "") + p.toFixed(1) + "%"; }
 
-  const api = { ema, rsi, atr, pivots, cluster, analyze, fmt, signed };
+  const api = { ema, rsi, atr, pivots, cluster, analyze, bullishTurn, fmt, signed };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.BVA = api;
 })(typeof window !== "undefined" ? window : globalThis);

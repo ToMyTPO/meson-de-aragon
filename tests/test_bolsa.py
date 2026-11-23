@@ -91,6 +91,21 @@ class TestBolsa(unittest.TestCase):
         self.assertEqual(len(llamadas), 3)
 
 
+class TestGiro(unittest.TestCase):
+    def test_detecta_giro_tras_caida(self):
+        precios = [100 - i * 0.5 for i in range(25)] + [88.2, 87.9, 88.3, 88.0, 88.4, 88.1, 88.6, 89.4, 90.3]
+        v = []
+        for i, p in enumerate(precios):
+            o = precios[i - 1] if i else p
+            v.append([i * 900, o, max(o, p) + 0.1, min(o, p) - 0.1, p, 100])
+        g = bolsa.giro_alcista(v)
+        self.assertTrue(g["turn"], g)
+
+    def test_tendencia_bajista_no_es_giro(self):
+        v = [[i * 900, 100 - i * 0.5, 100.2 - i * 0.5, 99.3 - i * 0.5, 99.5 - i * 0.5, 100] for i in range(40)]
+        self.assertFalse(bolsa.giro_alcista(v)["turn"])
+
+
 class TestSenalBolsa(unittest.TestCase):
     def test_ruptura_con_volumen(self):
         hoy = (int(time.time()) // DIA) * DIA

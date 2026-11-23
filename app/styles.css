@@ -108,6 +108,8 @@ button.ghost { background: transparent; color: var(--fg); border: 1px solid var(
 .alert.bajada .stripe { background: var(--down); }
 .alert.volumen .stripe { background: var(--accent); }
 .alert.senal .stripe { background: var(--warn); }
+.alert.giro .stripe { background: var(--up); }
+.tag.turn { background: color-mix(in srgb, var(--up) 22%, transparent); color: var(--up); }
 .tag.early { background: color-mix(in srgb, var(--warn) 25%, transparent); color: var(--warn); }
 .alert b { font-weight: 600; }
 .alert .meta { color: var(--muted); font-size: 12px; }

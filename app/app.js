@@ -72,9 +72,10 @@
     chain: "solana", refreshSec: 10, notify: true, sound: true, cooldownMin: 60,
     up5m: 25, up1h: 60, dn5m: -25, dn1h: -40, volX: 5, vol5mMin: 10000,
     liqMin: 15000, vol1hMin: 10000, ageMinH: 0.5,
-    top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, earlyMin: 70, apiKey: "",
+    top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, earlyMin: 55, turnOn: true, apiKey: "",
   };
   let S = Object.assign({}, DEFAULTS, store.get("settings", {}));
+  if (!store.get("migr55", false)) { if (S.earlyMin === 70) S.earlyMin = 55; store.set("migr55", true); store.set("settings", S); }
   if (!store.get("migr10", false)) { if (S.refreshSec === 30) S.refreshSec = 10; store.set("migr10", true); store.set("settings", S); }
   let watch = store.get("watch", []); // [{chain, address, symbol}]
   let alerts = store.get("alerts", []);
@@ -215,6 +216,40 @@
     state.stocks.forEach((t) => t.flags.length && fireAlerts(t, t.flags));
   }
 
+  // ------------------------------------------------------------ giro alcista (empieza a subir)
+  const turnSeen = {}; // id -> marca de la última vela evaluada
+  function turnAlert(t, res, lastTime) {
+    if (!res.turn || turnSeen[t.id] === lastTime) return;
+    turnSeen[t.id] = lastTime;
+    // clave por bloque de 2 h: como mucho un aviso de giro cada 2 h por activo
+    fireAlerts(t, [[`giro_${Math.floor(lastTime / 7200)}`, "giro", `giro alcista ${res.score}/100: ${res.reasons.join(", ")}`]]);
+    t.flags = (t.flags || []).filter((f) => f[1] !== "giro").concat([["giro", "giro", ""]]);
+  }
+  let stkTurnVersion = null;
+  async function checkStockTurns() {
+    if (!S.turnOn || !state.stocks.length || stkTurnVersion === state.stocksUpdated) return;
+    stkTurnVersion = state.stocksUpdated;
+    for (const t of state.stocks) {
+      try {
+        const j = await getJSON(`data/velas/${encodeURIComponent(t.file)}.json?t=${state.stocksUpdated}`);
+        const c = (j["15m"] || []).map((k) => ({ time: k[0], open: k[1], high: k[2], low: k[3], close: k[4], volume: k[5] }));
+        if (c.length) turnAlert(t, A.bullishTurn(c), c[c.length - 1].time);
+      } catch { /* sin velas */ }
+    }
+  }
+  async function checkWatchTurns() {
+    if (!S.turnOn) return;
+    for (const t of state.radar.filter((x) => x.kind === "dex" && isWatched(x)).slice(0, 8)) {
+      const net = GT_NET[t.chain];
+      if (!net || !t.pair) continue;
+      try {
+        const j = await getJSON(`${API.gt}/networks/${net}/pools/${t.pair}/ohlcv/minute?aggregate=5&limit=100&currency=usd`);
+        const c = (j?.data?.attributes?.ohlcv_list || []).map((k) => ({ time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] })).sort((a, b) => a.time - b.time);
+        if (c.length) turnAlert(t, A.bullishTurn(c), c[c.length - 1].time);
+      } catch { /* GeckoTerminal opcional */ }
+    }
+  }
+
   // ------------------------------------------------------------ reglas
   // Señal temprana: patrones que suelen preceder a una subida fuerte (no la predicen)
   function earlyScore(t) {
@@ -301,7 +336,7 @@
     if (!S.sound) return;
     try {
       audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-      const notes = type === "senal" ? [600, 800, 1000] : type === "bajada" ? [660, 440] : type === "subida" ? [520, 880] : [700, 700];
+      const notes = type === "giro" ? [500, 650, 800] : type === "senal" ? [600, 800, 1000] : type === "bajada" ? [660, 440] : type === "subida" ? [520, 880] : [700, 700];
       notes.forEach((f, i) => {
         const o = audioCtx.createOscillator(), g = audioCtx.createGain();
         o.frequency.value = f; o.type = "sine";
@@ -342,9 +377,9 @@
     alerts = alerts.slice(0, 200);
     state.flashed.add(t.id);
     if (state.view !== "alerts") unseen++;
-    const icon = type === "senal" ? "⚡" : type === "subida" ? "🚀" : type === "bajada" ? "🔻" : "📈";
-    const title = type === "senal" ? `⚡ Señal temprana en ${t.symbol}` : `${icon} ${t.symbol} ${type === "subida" ? "sube" : type === "bajada" ? "cae" : "volumen"}: ${reason}`;
-    const body = `${type === "senal" ? reason + " · " : ""}${t.name} · ${px(t)}${t.mcap ? " · MC " + usd(t.mcap) : ""}${a.risks.length ? " · ⚠️ " + a.risks.join(", ") : ""}`;
+    const icon = type === "giro" ? "📈" : type === "senal" ? "⚡" : type === "subida" ? "🚀" : type === "bajada" ? "🔻" : "📈";
+    const title = type === "giro" ? `📈 ${t.symbol} empieza a subir` : type === "senal" ? `⚡ Señal temprana en ${t.symbol}` : `${icon} ${t.symbol} ${type === "subida" ? "sube" : type === "bajada" ? "cae" : "volumen"}: ${reason}`;
+    const body = `${type === "senal" || type === "giro" ? reason + " · " : ""}${t.name} · ${px(t)}${t.mcap ? " · MC " + usd(t.mcap) : ""}${a.risks.length ? " · ⚠️ " + a.risks.join(", ") : ""}`;
     notify(title, body, t.id);
     beep(type);
     persistAlerts();
@@ -369,9 +404,10 @@
       if (type === "bajada" && !tags.includes("down")) tags.push("down");
       if (type === "volumen" && !tags.includes("vol")) tags.push("vol");
       if (type === "senal" && !tags.includes("early")) tags.unshift("early");
+      if (type === "giro" && !tags.includes("turn")) tags.unshift("turn");
     });
     const stk = t.kind === "stk";
-    const tagHtml = tags.map((x) => `<span class="tag ${x}">${x === "early" ? "⚡ señal" : x === "up" ? (stk ? "sube" : "pump") : x === "down" ? (stk ? "cae" : "dump") : "vol"}</span>`).join("")
+    const tagHtml = tags.map((x) => `<span class="tag ${x}">${x === "turn" ? "📈 giro" : x === "early" ? "⚡ señal" : x === "up" ? (stk ? "sube" : "pump") : x === "down" ? (stk ? "cae" : "dump") : "vol"}</span>`).join("")
       + riskTags(t).map((r) => `<span class="tag risk">${esc(r)}</span>`).join("");
     const pressure = t.buys1h != null && t.sells1h != null && t.buys1h + t.sells1h > 0
       ? `<div class="pbar"><i style="width:${(100 * t.buys1h / (t.buys1h + t.sells1h)).toFixed(0)}%"></i></div>` : "";
@@ -478,6 +514,7 @@
       const every = (sec) => cycle % Math.max(1, Math.round(sec / Math.max(5, S.refreshSec))) === 0;
       if (every(60)) await refreshTop().catch((e) => console.warn("CoinGecko", e));
       if (every(60)) await refreshStocks().catch((e) => { state.stocksErr = e.message; });
+      if (every(60)) { await checkStockTurns(); await checkWatchTurns(); }
       state.lastOk = Date.now(); state.lastErr = null;
     } catch (e) {
       state.lastErr = e.message || String(e);
@@ -771,7 +808,7 @@ ${JSON.stringify(data)}`;
   }
 
   // ------------------------------------------------------------ ajustes UI
-  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "stkIdx", "stk", "earlyMin", "apiKey"];
+  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "stkIdx", "stk", "earlyMin", "turnOn", "apiKey"];
   const MAP = { refresh: "refreshSec", cooldown: "cooldownMin" };
   function fillSettings() {
     FIELDS.forEach((f) => {
