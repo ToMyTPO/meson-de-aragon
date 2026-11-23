@@ -9,6 +9,10 @@
     claude: "https://api.anthropic.com/v1/messages",
   };
   const GT_NET = { solana: "solana", ethereum: "eth", bsc: "bsc", base: "base" };
+  // Monedas base de los pares (no son memecoins): SOL envuelto, USDC, USDT, WETH…
+  const QUOTES = new Set(["So11111111111111111111111111111111111111112", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", "0x4200000000000000000000000000000000000006",
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"]);
 
   // ------------------------------------------------------------ utilidades
   const $ = (s) => document.querySelector(s);
@@ -67,7 +71,7 @@
   const DEFAULTS = {
     chain: "solana", refreshSec: 10, notify: true, sound: true, cooldownMin: 60,
     up5m: 25, up1h: 60, dn5m: -25, dn1h: -40, volX: 5, vol5mMin: 10000,
-    liqMin: 15000, vol1hMin: 10000, ageMinH: 1,
+    liqMin: 15000, vol1hMin: 10000, ageMinH: 0.5,
     top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, earlyMin: 70, apiKey: "",
   };
   let S = Object.assign({}, DEFAULTS, store.get("settings", {}));
@@ -114,16 +118,19 @@
     });
     const net = GT_NET[chain];
     if (net) {
-      try {
-        const j = await getJSON(`${API.gt}/networks/${net}/trending_pools?page=1`);
-        (j.data || []).forEach((p) => {
+      // Tendencias (2 páginas) y pools recién creados de GeckoTerminal
+      const gts = await Promise.allSettled(["trending_pools?page=1", "trending_pools?page=2", "new_pools?page=1"]
+        .map((q) => getJSON(`${API.gt}/networks/${net}/${q}`)));
+      gts.forEach((r) => {
+        if (r.status !== "fulfilled") return;
+        (r.value.data || []).forEach((p) => {
           const id = p.relationships?.base_token?.data?.id;
           if (id) set.add(id.slice(id.indexOf("_") + 1));
         });
-      } catch { /* GeckoTerminal opcional */ }
+      });
     }
     if (!set.size && res.every((r) => r.status === "rejected")) throw new Error("DexScreener no responde");
-    return [...set];
+    return [...set].filter((a) => !QUOTES.has(a) && !QUOTES.has(a.toLowerCase())).slice(0, 180);
   }
 
   async function pairsFor(chain, addresses) {
@@ -147,11 +154,11 @@
   const passFilters = (t) => isWatched(t) || (
     (t.liq || 0) >= S.liqMin && (t.vol1h || 0) >= S.vol1hMin && (t.ageH == null || t.ageH >= S.ageMinH));
 
-  // Descubrir tokens cuesta más peticiones y cambia despacio: cada 60 s. Los precios, en cada ciclo.
+  // Descubrir tokens cuesta más peticiones: cada 20 s (dentro de los límites de DexScreener y GeckoTerminal). Precios, cada ciclo.
   let disc = { chain: null, addrs: [], ts: 0 };
   async function refreshRadar() {
     const chain = S.chain;
-    if (disc.chain !== chain || Date.now() - disc.ts > 60000 || !disc.addrs.length) {
+    if (disc.chain !== chain || Date.now() - disc.ts > 20000 || !disc.addrs.length) {
       disc = { chain, addrs: await discover(chain), ts: Date.now() };
     }
     const addrs = disc.addrs.slice();

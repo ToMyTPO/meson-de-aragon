@@ -9,6 +9,13 @@ from .http import get_json
 
 DEX = "https://api.dexscreener.com"
 CG = "https://api.coingecko.com/api/v3"
+GT = "https://api.geckoterminal.com/api/v2"
+GT_RED = {"solana": "solana", "ethereum": "eth", "bsc": "bsc", "base": "base"}
+# Monedas base de los pares (no son memecoins)
+BASES = {"So11111111111111111111111111111111111111112", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+         "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "0x4200000000000000000000000000000000000006", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+         "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"}
 
 
 def _f(x):
@@ -33,6 +40,23 @@ def descubrir_tokens_dex(cadenas):
             cadena = item.get("chainId")
             if cadena in cadenas and item.get("tokenAddress"):
                 direcciones.setdefault(cadena, set()).add(item["tokenAddress"])
+    # Tendencias y pools nuevos de GeckoTerminal
+    for cadena in cadenas:
+        red = GT_RED.get(cadena)
+        if not red:
+            continue
+        for q in ("trending_pools?page=1", "trending_pools?page=2", "new_pools?page=1"):
+            try:
+                datos = get_json(f"{GT}/networks/{red}/{q}", retries=1)
+            except RuntimeError as e:
+                print(f"[aviso] {e}")
+                continue
+            for p in datos.get("data") or []:
+                tid = ((p.get("relationships") or {}).get("base_token") or {}).get("data", {}).get("id", "")
+                if "_" in tid:
+                    direcciones.setdefault(cadena, set()).add(tid.split("_", 1)[1])
+    for cadena in direcciones:
+        direcciones[cadena] = {a for a in direcciones[cadena] if a not in BASES and a.lower() not in BASES}
     return direcciones
 
 
