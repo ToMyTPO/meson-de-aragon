@@ -1,5 +1,5 @@
 /* Service worker: permite instalar la app y mostrar notificaciones. Los datos de mercado nunca se cachean. */
-const CACHE = "bv-v9";
+const CACHE = "bv-v10";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "analysis.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {

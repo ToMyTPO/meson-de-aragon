@@ -72,7 +72,7 @@
     chain: "solana", refreshSec: 10, notify: true, sound: true, cooldownMin: 60,
     up5m: 25, up1h: 60, dn5m: -25, dn1h: -40, volX: 5, vol5mMin: 10000,
     liqMin: 15000, vol1hMin: 10000, ageMinH: 0.5,
-    top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, earlyMin: 55, turnOn: true, apiKey: "",
+    top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, earlyMin: 55, turnOn: true, finnhubKey: "", apiKey: "",
   };
   let S = Object.assign({}, DEFAULTS, store.get("settings", {}));
   if (!store.get("migr55", false)) { if (S.earlyMin === 70) S.earlyMin = 55; store.set("migr55", true); store.set("settings", S); }
@@ -209,12 +209,75 @@
         url: "https://www.tradingview.com/symbols/" + encodeURIComponent(x.symbol) + "/", mcap: null,
       };
       t.signal = x.signal || null;
+      t.src = x.source_symbol || x.symbol;
+      // Si ya hay cotización en vivo más reciente, conservarla
+      const prev = liveQuotes[t.id];
+      if (prev && (!t.time || prev.time > t.time)) Object.assign(t, { price: prev.price, time: prev.time, dayHigh: prev.dayHigh, dayLow: prev.dayLow, live: true }), (t.ch.d1 = prev.d1);
       t.flags = evaluateStk(t);
       return t;
     });
     state.stocksErr = null;
     state.stocks.forEach((t) => t.flags.length && fireAlerts(t, t.flags));
   }
+
+  // ------------------------------------------------------------ bolsa en vivo (Finnhub, opcional)
+  const liveQuotes = {};      // id -> {price, d1, time, dayHigh, dayLow}
+  const stkCandles = {};      // id -> velas 15m (publicadas + parcheadas con el precio en vivo)
+  let quotesBusy = false, quotesErr = null;
+  const isToday = (ms) => ms && new Date(ms).toDateString() === new Date().toDateString();
+
+  function patchCandles(list, price, ms, step) {
+    if (!list || !price) return;
+    const t = Math.floor(ms / 1000 / step) * step, last = list[list.length - 1];
+    if (last && last.time === t) { last.high = Math.max(last.high, price); last.low = Math.min(last.low, price); last.close = price; }
+    else if (!last || t > last.time) list.push({ time: t, open: last ? last.close : price, high: price, low: price, close: price, volume: 0 });
+  }
+
+  let refreshQuotes = async function () {
+    if (!S.finnhubKey || !state.stocks.length || quotesBusy || document.hidden) return;
+    quotesBusy = true;
+    try {
+      for (const t of state.stocks) {
+        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(t.src || t.ticker)}`, { headers: { "X-Finnhub-Token": S.finnhubKey } });
+        if (r.status === 401 || r.status === 403) { quotesErr = "La clave de Finnhub no es válida"; break; }
+        if (r.status === 429) { quotesErr = "Límite de Finnhub alcanzado; reintento en un momento"; break; }
+        const q = await r.json().catch(() => null);
+        if (!q || !q.c) continue;
+        quotesErr = null;
+        const ms = (q.t || Date.now() / 1000) * 1000;
+        liveQuotes[t.id] = { price: q.c, d1: q.dp, time: ms, dayHigh: q.h, dayLow: q.l };
+        Object.assign(t, { price: q.c, time: ms, dayHigh: q.h, dayLow: q.l, live: true });
+        t.ch.d1 = q.dp;
+        if (stkCandles[t.id]) {
+          patchCandles(stkCandles[t.id], q.c, ms, 900);
+          if (S.turnOn) turnAlert(t, A.bullishTurn(stkCandles[t.id]), stkCandles[t.id][stkCandles[t.id].length - 1].time);
+        }
+        t.flags = evaluateStk(t);
+        if (t.flags.length) fireAlerts(t, t.flags);
+        // gráfico abierto de este valor: actualizar la última vela
+        if (state.detail && state.detail.id === t.id && state.series && state.candles) {
+          patchCandles(state.candles, q.c, ms, state.tf === "1D" ? 86400 : state.tf === "1h" ? 3600 : 900);
+          state.series.cs.update(state.candles[state.candles.length - 1]);
+          refreshDetailHeader();
+        }
+        await new Promise((ok) => setTimeout(ok, 250));
+      }
+    } catch (e) { quotesErr = "Sin conexión con Finnhub"; }
+    finally {
+      quotesBusy = false;
+      if (state.view === "stocks") renderStocks();
+    }
+  };
+  // 60 consultas/min en el plan gratis: con N valores, una ronda cada max(15 s, N) segundos
+  setInterval(() => { if (S.finnhubKey) refreshQuotes(); }, 5000);
+  let lastQuoteRound = 0;
+  const _rq = refreshQuotes;
+  refreshQuotes = async function () {
+    const minGap = Math.max(15000, state.stocks.length * 1100);
+    if (Date.now() - lastQuoteRound < minGap) return;
+    lastQuoteRound = Date.now();
+    return _rq();
+  };
 
   // ------------------------------------------------------------ giro alcista (empieza a subir)
   const turnSeen = {}; // id -> marca de la última vela evaluada
@@ -233,7 +296,7 @@
       try {
         const j = await getJSON(`data/velas/${encodeURIComponent(t.file)}.json?t=${state.stocksUpdated}`);
         const c = (j["15m"] || []).map((k) => ({ time: k[0], open: k[1], high: k[2], low: k[3], close: k[4], volume: k[5] }));
-        if (c.length) turnAlert(t, A.bullishTurn(c), c[c.length - 1].time);
+        if (c.length) { stkCandles[t.id] = c; turnAlert(t, A.bullishTurn(c), c[c.length - 1].time); }
       } catch { /* sin velas */ }
     }
   }
@@ -435,7 +498,7 @@
       : stk ? `${esc(t.exchange || t.group)}`
       : `#${t.rank} · MC ${usd(t.mcap)} · Vol 24h ${usd(t.vol24h)}`;
     const chg = stk
-      ? `<span class="${cls(t.ch.d1)}"><em>hoy</em>${pctS(t.ch.d1)}</span><span class="${cls(t.ch.d5)}"><em>5d</em>${pctS(t.ch.d5)}</span><span class="${cls(t.ch.m1)}"><em>1m</em>${pctS(t.ch.m1)}</span>`
+      ? `<span class="${cls(t.ch.d1)}"><em>${isToday(t.time) ? "hoy" : "últ."}</em>${pctS(t.ch.d1)}</span><span class="${cls(t.ch.d5)}"><em>5d</em>${pctS(t.ch.d5)}</span><span class="${cls(t.ch.m1)}"><em>1m</em>${pctS(t.ch.m1)}</span>`
       : t.kind === "dex"
       ? `<span class="${cls(t.ch.m5)}"><em>5m</em>${pctS(t.ch.m5)}</span><span class="${cls(t.ch.h1)}"><em>1h</em>${pctS(t.ch.h1)}</span><span class="${cls(t.ch.h24)}"><em>24h</em>${pctS(t.ch.h24)}</span>`
       : `<span class="${cls(t.ch.h1)}"><em>1h</em>${pctS(t.ch.h1)}</span><span class="${cls(t.ch.h24)}"><em>24h</em>${pctS(t.ch.h24)}</span><span class="${cls(t.ch.d7)}"><em>7d</em>${pctS(t.ch.d7)}</span>`;
@@ -482,8 +545,9 @@
     const sort = $("#stkSort").value;
     const key = { d1: (t) => t.ch.d1, drop: (t) => -(t.ch.d1 ?? 0), d5: (t) => t.ch.d5, m1: (t) => t.ch.m1 }[sort];
     if (key) list.sort((a, b) => (key(b) ?? -1e12) - (key(a) ?? -1e12));
-    $("#stkUpdated").textContent = state.stocksUpdated
-      ? `Datos de Twelve Data, actualizados ${ago(state.stocksUpdated)}. Se renuevan cada 30 min en horario de EE. UU.` : "";
+    $("#stkUpdated").textContent = S.finnhubKey
+      ? (quotesErr ? quotesErr + "." : "Precios en vivo (Finnhub, cada ~15 s). Velas e historial: Twelve Data.") + " Fuera de horario (15:30–22:00 en España) se muestra el último cierre."
+      : state.stocksUpdated ? `Datos de Twelve Data, actualizados ${ago(state.stocksUpdated)}, cada 30 min en horario de EE. UU. Para precios en vivo, añade una clave gratis de Finnhub en Ajustes.` : "";
     $("#stkList").innerHTML = list.length ? list.map(tokenRow).join("")
       : `<div class="empty">${state.stocksErr ? "Aún no hay datos de bolsa. Se activan al guardar la clave TWELVEDATA_API_KEY en GitHub y llegan en la siguiente actualización." : "Cargando bolsa…"}</div>`;
   }
@@ -586,11 +650,11 @@
     $("#dStar").hidden = t.kind !== "dex";
     const ch = t.kind === "dex"
       ? [["5m", t.ch.m5], ["1h", t.ch.h1], ["6h", t.ch.h6], ["24h", t.ch.h24]]
-      : t.kind === "stk" ? [["hoy", t.ch.d1], ["5d", t.ch.d5], ["1m", t.ch.m1], ["1a", t.ch.y1]]
+      : t.kind === "stk" ? [[isToday(t.time) ? "hoy" : "últ. sesión", t.ch.d1], ["5d", t.ch.d5], ["1m", t.ch.m1], ["1a", t.ch.y1]]
       : [["1h", t.ch.h1], ["24h", t.ch.h24], ["7d", t.ch.d7]];
     $("#dPrice").innerHTML = `<div class="big">${px(t)}</div><div class="changes">${ch.map(([k, v]) => `<span class="${cls(v)}"><em>${k}</em> ${pctS(v)}</span>`).join("")}</div>`;
     const stats = t.kind === "stk"
-      ? [["Máx hoy", px(t, t.dayHigh)], ["Mín hoy", px(t, t.dayLow)], ["Volumen", t.volume ? t.volume.toLocaleString("es-ES") : "–"], ["Máx 52 sem", px(t, t.high52)], ["Mín 52 sem", px(t, t.low52)], ["Cotización", t.time ? ago(t.time) : "?"]]
+      ? [["Máx hoy", px(t, t.dayHigh)], ["Mín hoy", px(t, t.dayLow)], ["Volumen", t.volume ? t.volume.toLocaleString("es-ES") : "–"], ["Máx 52 sem", px(t, t.high52)], ["Mín 52 sem", px(t, t.low52)], [t.live ? "En vivo (Finnhub)" : "Cotización", t.time ? ago(t.time) : "?"]]
       : t.kind === "dex"
       ? [["Market cap", usd(t.mcap)], ["Liquidez", usd(t.liq)], ["Vol 1h", usd(t.vol1h)], ["Vol 24h", usd(t.vol24h)], ["Compras/ventas 1h", `${t.buys1h ?? "?"}/${t.sells1h ?? "?"}`], ["Edad", age(t.ageH)]]
       : [["Market cap", usd(t.mcap)], ["Ranking", "#" + t.rank], ["Vol 24h", usd(t.vol24h)], ["Máx 24h", A.fmt(t.high24)], ["Mín 24h", A.fmt(t.low24)], ["Desde ATH", pctS(t.athPct)]];
@@ -680,7 +744,7 @@
     cs.setData(candles);
     state.series = { cs, vs: null, lines: [] };
     if (candles.some((k) => k.volume > 0)) {
-      const vs = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
+      const vs = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
       vs.setData(candles.map((k) => ({ time: k.time, value: k.volume, color: (k.close >= k.open ? c("--up") : c("--down")) + "66" })));
       state.series.vs = vs;
@@ -827,7 +891,7 @@ ${JSON.stringify(data)}`;
   }
 
   // ------------------------------------------------------------ ajustes UI
-  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "stkIdx", "stk", "earlyMin", "turnOn", "apiKey"];
+  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "stkIdx", "stk", "earlyMin", "turnOn", "finnhubKey", "apiKey"];
   const MAP = { refresh: "refreshSec", cooldown: "cooldownMin" };
   function fillSettings() {
     FIELDS.forEach((f) => {
