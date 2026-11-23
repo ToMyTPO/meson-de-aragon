@@ -184,25 +184,41 @@ def main(argv=None):
     items, fallos = [], []
     primera = True
     for grupo, valores in lista.items():
-        for sym, nombre in valores:
+        for entrada in valores:
+            # Entrada: [símbolo, nombre] o [símbolo, nombre, [alternativas si el primero falla]]
+            sym, nombre = entrada[0], entrada[1]
+            candidatos = [sym] + list(entrada[2] if len(entrada) > 2 else [])
             if not items and len(fallos) >= 3:
                 print("[error] la API rechaza las peticiones; revisa la clave o el límite diario", file=sys.stderr)
                 break
-            try:
-                if not primera:
+            intra = diario = None
+            usado, errores = None, []
+            for cand in candidatos:
+                try:
+                    if not primera:
+                        time.sleep(PAUSA)
+                    primera = False
+                    intra = get(cand, "15min", 160, clave)
                     time.sleep(PAUSA)
-                primera = False
-                intra = get(sym, "15min", 160, clave)
-                time.sleep(PAUSA)
-                diario = get(sym, "1day", 260, clave)
-            except RuntimeError as e:
-                fallos.append(str(e))
-                print(f"[aviso] {e}", file=sys.stderr)
+                    diario = get(cand, "1day", 260, clave)
+                    usado = cand
+                    break
+                except RuntimeError as e:
+                    errores.append(str(e))
+                    print(f"[aviso] {e}", file=sys.stderr)
+            if not usado:
+                fallos.append("; ".join(errores))
                 continue
+            if usado != sym:
+                print(f"[aviso] {sym} no disponible; se usa {usado}", file=sys.stderr)
             vi, vd = velas(intra), velas(diario)
             with open(os.path.join(args.salida, "velas", archivo(sym) + ".json"), "w", encoding="utf-8") as f:
                 json.dump({"15m": vi, "1D": vd}, f, separators=(",", ":"))
-            items.append(resumen(sym, nombre, grupo, vd, vi, diario.get("meta") or {}))
+            it = resumen(sym, nombre, grupo, vd, vi, diario.get("meta") or {})
+            it["source_symbol"] = usado
+            if usado != sym:
+                it["name"] = f"{nombre} (vía {usado})"
+            items.append(it)
         else:
             continue
         break
