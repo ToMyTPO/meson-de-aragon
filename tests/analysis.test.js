@@ -44,3 +44,14 @@ test("formato de precios pequeños", () => {
   assert.strictEqual(A.fmt(0.000674), "$0.000674");
   assert.strictEqual(A.fmt(90123), "$90,123");
 });
+
+test("giro alcista tras una caída", () => {
+  const precios = [...Array(25)].map((_, i) => 100 - i * 0.5).concat([88.2, 87.9, 88.3, 88.0, 88.4, 88.1, 88.6, 89.4, 90.3]);
+  const c = precios.map((p, i) => { const o = i ? precios[i - 1] : p; return { time: i, open: o, high: Math.max(o, p) + 0.1, low: Math.min(o, p) - 0.1, close: p, volume: 100 }; });
+  assert.ok(A.bullishTurn(c).turn);
+});
+
+test("caída continua no es giro", () => {
+  const c = [...Array(40)].map((_, i) => ({ time: i, open: 100 - i * 0.5, high: 100.2 - i * 0.5, low: 99.3 - i * 0.5, close: 99.5 - i * 0.5, volume: 100 }));
+  assert.ok(!A.bullishTurn(c).turn);
+});

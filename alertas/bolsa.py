@@ -78,6 +78,48 @@ def rsi(vals, n=14):
     return 100.0 if l == 0 else 100 - 100 / (1 + g / l)
 
 
+def rsi_serie(vals, n=14):
+    out = [None] * len(vals)
+    if len(vals) <= n:
+        return out
+    g = sum(max(vals[i] - vals[i - 1], 0) for i in range(1, n + 1)) / n
+    l = sum(max(vals[i - 1] - vals[i], 0) for i in range(1, n + 1)) / n
+    out[n] = 100.0 if l == 0 else 100 - 100 / (1 + g / l)
+    for i in range(n + 1, len(vals)):
+        d = vals[i] - vals[i - 1]
+        g = (g * (n - 1) + max(d, 0)) / n
+        l = (l * (n - 1) + max(-d, 0)) / n
+        out[i] = 100.0 if l == 0 else 100 - 100 / (1 + g / l)
+    return out
+
+
+def giro_alcista(velas15):
+    """El precio deja de caer y empieza a subir en velas de 15 min (misma lógica que la app)."""
+    if len(velas15) < 30:
+        return {"score": 0, "turn": False, "reasons": []}
+    c = [k[4] for k in velas15]
+    e9, e21, r = ema(c, 9), ema(c, 21), rsi_serie(c)
+    n, puntos, motivos = len(c) - 1, 0, []
+    if any(e9[i] > e21[i] and e9[i - 1] <= e21[i - 1] for i in range(n - 2, n + 1)):
+        puntos += 30; motivos.append("la media rápida cruza al alza la lenta")
+    debajo = sum(1 for i in range(n - 6, n - 1) if c[i] < e9[i])
+    if c[n] > e9[n] and debajo >= 3:
+        puntos += 25; motivos.append("recupera su media corta tras caer")
+    if r[n] is not None and r[n] > 50 and any(x is not None and x <= 50 for x in r[n - 3:n]):
+        puntos += 20; motivos.append(f"RSI cruza 50 ({r[n]:.0f})")
+    elif r[n] is not None and r[n - 3] is not None and r[n - 3] < 40 and r[n] - r[n - 3] >= 15:
+        puntos += 20; motivos.append(f"RSI girando al alza ({r[n - 3]:.0f}→{r[n]:.0f})")
+    if e9[n] > e9[n - 1] > e9[n - 2] and e9[n - 3] <= e9[n - 4]:
+        puntos += 15; motivos.append("la media corta empieza a apuntar arriba")
+    o, h = velas15[n][1], velas15[n - 1][2]
+    if c[n] > o and c[n] > h:
+        puntos += 15; motivos.append("vela verde que supera el máximo anterior")
+    if r[n] is not None and r[n] > 75:
+        puntos -= 20; motivos.append("ya en sobrecompra")
+    puntos = max(0, min(100, puntos))
+    return {"score": puntos, "turn": puntos >= 50 and c[n] > e9[n], "reasons": motivos}
+
+
 def senal_bolsa(diario, intradia, precio, ch1d):
     """Puntúa de 0 a 100 patrones que suelen preceder a un movimiento alcista fuerte. No predice nada."""
     if len(diario) < 50 or not intradia or not precio:
@@ -136,10 +178,11 @@ def resumen(sym, nombre, grupo, diario, intradia, meta):
         "dayHigh": max((k[2] for k in ultimo_dia), default=None), "dayLow": min((k[3] for k in ultimo_dia), default=None),
         "volume": sum(k[5] for k in ultimo_dia) or None,
         "signal": senal_bolsa(diario, intradia, precio, cambio(precio, prev)),
+        "turn": giro_alcista(intradia),
     }
 
 
-def avisar_telegram(items, minimo=70):
+def avisar_telegram(items, minimo=55):
     """Envía a Telegram las señales tempranas de bolsa (una por valor y día)."""
     if not os.environ.get("TELEGRAM_TOKEN"):
         return
@@ -147,6 +190,17 @@ def avisar_telegram(items, minimo=70):
     from .notificar import enviar
     estado = Estado(os.environ.get("ESTADO_BOLSA", "estado_bolsa.json"))
     for it in items:
+        giro = it.get("turn") or {}
+        if giro.get("turn") and it.get("time"):
+            clave = f"{it['symbol']}|giro|{int(it['time']) // 7200}"  # como mucho uno cada 2 h
+            if estado.puede_avisar(clave, 120):
+                enviar("\n".join([
+                    f"📈 EMPIEZA A SUBIR | {it['name']} ({it['symbol']})",
+                    f"Giro alcista {giro['score']}/100 en velas de 15 min: " + "; ".join(giro["reasons"]),
+                    f"Precio: {it['price']:.2f} {it.get('currency') or ''} | hoy {(it['ch']['1d'] or 0):+.1f}%",
+                    "ℹ️ Puede ser solo un rebote corto. No es una predicción.",
+                ]))
+                estado.marcar(clave)
         sig = it.get("signal") or {}
         if sig.get("score", 0) < minimo:
             continue
