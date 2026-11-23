@@ -71,10 +71,11 @@
   const DEFAULTS = {
     chain: "solana", refreshSec: 10, notify: true, sound: true, cooldownMin: 60,
     up5m: 25, up1h: 60, dn5m: -25, dn1h: -40, volX: 5, vol5mMin: 10000,
-    liqMin: 15000, vol1hMin: 10000, ageMinH: 0.5,
+    liqMin: 15000, vol1hMin: 10000, ageMinH: 0,
     top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, earlyMin: 55, turnOn: true, finnhubKey: "", apiKey: "",
   };
   let S = Object.assign({}, DEFAULTS, store.get("settings", {}));
+  if (!store.get("migrAge0", false)) { if (S.ageMinH === 0.5 || S.ageMinH === 1) S.ageMinH = 0; store.set("migrAge0", true); store.set("settings", S); }
   if (!store.get("migr55", false)) { if (S.earlyMin === 70) S.earlyMin = 55; store.set("migr55", true); store.set("settings", S); }
   if (!store.get("migr10", false)) { if (S.refreshSec === 30) S.refreshSec = 10; store.set("migr10", true); store.set("settings", S); }
   let watch = store.get("watch", []); // [{chain, address, symbol}]
@@ -405,7 +406,8 @@
   function riskTags(t) {
     const r = [];
     if (t.kind !== "dex") return r;
-    if (t.ageH != null && t.ageH < 24) r.push("nuevo");
+    if (t.ageH != null && t.ageH < 0.5) r.push(`recién creado (${Math.max(1, Math.round(t.ageH * 60))} min)`);
+    else if (t.ageH != null && t.ageH < 24) r.push("nuevo");
     if (t.liq != null && t.liq < 25000) r.push("liq. baja");
     if (t.buys1h != null && t.sells1h != null && t.sells1h > 2 * Math.max(t.buys1h, 1)) r.push("ventas");
     if (t.ch.h1 != null && t.ch.h1 >= 100 && ((t.liq && t.mcap && t.liq / t.mcap < 0.03) || (t.buys5m != null && t.sells5m > 1.5 * Math.max(t.buys5m, 1)))) r.push("posible inflado");

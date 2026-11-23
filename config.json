@@ -11,7 +11,7 @@
     "filtros": {
       "liquidez_min_usd": 15000,
       "volumen_1h_min_usd": 10000,
-      "edad_min_horas": 0.5,
+      "edad_min_horas": 0,
       "mcap_max_usd": 50000000
     },
     "umbrales": {

@@ -116,7 +116,9 @@ def banderas_riesgo(m):
     b = []
     if m["fuente"] != "dex":
         return b
-    if m["edad_h"] is not None and m["edad_h"] < 24:
+    if m["edad_h"] is not None and m["edad_h"] < 0.5:
+        b.append(f"recién creado ({max(1, round(m['edad_h'] * 60))} min): riesgo de rug máximo")
+    elif m["edad_h"] is not None and m["edad_h"] < 24:
         b.append(f"token muy nuevo ({m['edad_h']:.0f}h)")
     if m["liquidez"] and m["mcap"] and m["liquidez"] / m["mcap"] < 0.05:
         b.append("liquidez muy baja frente al market cap")
