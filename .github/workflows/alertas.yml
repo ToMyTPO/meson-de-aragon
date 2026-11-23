@@ -32,7 +32,7 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m alertas --once
+        run: python -m alertas --once --ciclos 4 --pausa 60   # revisa cada minuto durante ~4 min
 
       - name: Guardar estado
         if: always()

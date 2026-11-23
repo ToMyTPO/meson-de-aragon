@@ -94,6 +94,20 @@ class TestSenalTemprana(unittest.TestCase):
         self.assertTrue(any("inflado" in r for r in reglas.banderas_riesgo(m)))
 
 
+class TestDescubrimiento(unittest.TestCase):
+    def test_incluye_geckoterminal_y_excluye_bases(self):
+        def falso(url, retries=3, timeout=20):
+            if "dexscreener" in url:
+                return [{"chainId": "solana", "tokenAddress": "DEX1"}, {"chainId": "base", "tokenAddress": "OTRA"}]
+            return {"data": [
+                {"relationships": {"base_token": {"data": {"id": "solana_GT1"}}}},
+                {"relationships": {"base_token": {"data": {"id": "solana_So11111111111111111111111111111111111111112"}}}},
+            ]}
+        with mock.patch.object(fuentes, "get_json", side_effect=falso):
+            r = fuentes.descubrir_tokens_dex({"solana"})
+        self.assertEqual(r["solana"], {"DEX1", "GT1"})
+
+
 class TestCiclo(unittest.TestCase):
     def test_ciclo_y_enfriamiento(self):
         cfg = bot.cargar_config(os.path.join(bot.RAIZ, "config.json"))

@@ -87,6 +87,8 @@ def main(argv=None):
     ap.add_argument("--config", default=os.path.join(RAIZ, "config.json"))
     ap.add_argument("--once", action="store_true", help="un solo ciclo (para cron / GitHub Actions)")
     ap.add_argument("--dry-run", action="store_true", help="no envía a Telegram, solo consola")
+    ap.add_argument("--ciclos", type=int, default=1, help="con --once: cuántas revisiones hacer seguidas")
+    ap.add_argument("--pausa", type=int, default=60, help="con --once: segundos entre revisiones")
     args = ap.parse_args(argv)
 
     cfg = cargar_config(args.config)
@@ -94,8 +96,15 @@ def main(argv=None):
     print(comprobar_telegram())
 
     if args.once:
-        # En modo --once siempre se consulta CoinGecko
-        ciclo_unico(cfg, estado, 0, args.dry_run)
+        # Varias revisiones seguidas por ejecución (GitHub solo permite lanzar cada 5 min).
+        # La primera consulta CoinGecko; el resto, solo memecoins.
+        for i in range(max(1, args.ciclos)):
+            if i:
+                time.sleep(args.pausa)
+            try:
+                ciclo_unico(cfg, estado, i * cfg.get("top_coins", {}).get("cada_n_ciclos", 5), args.dry_run)
+            except Exception as e:
+                print(f"[error] {e}", file=sys.stderr)
         return 0
 
     intervalo = cfg.get("intervalo_segundos", 60)
