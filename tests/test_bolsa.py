@@ -7,71 +7,76 @@ from unittest import mock
 
 from alertas import bolsa
 
+DIA = 86400
 
-def respuesta(n, precio_final, intervalo):
-    t0 = int(time.time()) - n * intervalo
-    closes = [100 + i for i in range(n - 1)] + [precio_final]
-    return {
-        "meta": {"regularMarketPrice": precio_final, "currency": "USD", "fullExchangeName": "SNP",
-                 "regularMarketTime": t0 + n * intervalo, "fiftyTwoWeekHigh": 400, "fiftyTwoWeekLow": 90},
-        "timestamp": [t0 + i * intervalo for i in range(n)],
-        "indicators": {"quote": [{
-            "open": closes, "high": [c + 1 for c in closes], "low": [c - 1 for c in closes],
-            "close": closes, "volume": [1000] * (n - 2) + [None, 500],
-        }]},
-    }
+
+def serie(n, paso, final, inicio):
+    """Respuesta tipo Twelve Data (más reciente primero)."""
+    vals = []
+    for i in range(n):
+        t = inicio + i * paso
+        c = final if i == n - 1 else 100.0 + i
+        fmt = "%Y-%m-%d %H:%M:%S" if paso < DIA else "%Y-%m-%d"
+        vals.append({"datetime": time.strftime(fmt, time.gmtime(t)), "open": str(c), "high": str(c + 1),
+                     "low": str(c - 1), "close": str(c), "volume": "1000"})
+    return {"status": "ok", "meta": {"currency": "USD", "exchange": "NASDAQ"}, "values": vals[::-1]}
+
+
+def falso(final=360.0, fallan=()):
+    hoy = (int(time.time()) // DIA) * DIA
+    def get(sym, intervalo, cantidad, clave):
+        if sym in fallan:
+            raise RuntimeError(f"{sym} {intervalo}: **symbol** not found")
+        if intervalo == "1day":
+            return serie(250, DIA, final, hoy - 249 * DIA)  # el último día es hoy
+        return serie(26, 900, final, hoy + 14 * 3600)       # sesión de hoy
+    return get
 
 
 class TestBolsa(unittest.TestCase):
+    def ejecutar(self, lista, get, clave="x"):
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "lista.json")
+            with open(ruta, "w") as f:
+                json.dump(lista, f)
+            with mock.patch.object(bolsa, "get", side_effect=get), mock.patch.object(bolsa.time, "sleep"), \
+                    mock.patch.dict(os.environ, {"TWELVEDATA_API_KEY": clave}):
+                code = bolsa.main(["--lista", ruta, "--salida", d])
+            res = None
+            if os.path.exists(os.path.join(d, "bolsa.json")):
+                with open(os.path.join(d, "bolsa.json")) as f:
+                    res = json.load(f)
+            velas = None
+            if os.path.exists(os.path.join(d, "velas", "NVDA.json")):
+                with open(os.path.join(d, "velas", "NVDA.json")) as f:
+                    velas = json.load(f)
+            return code, res, velas
+
     def test_genera_resumen_y_velas(self):
-        def falso(sym, rng, itv, intentos=3):
-            if sym == "FALLA":
-                raise RuntimeError("FALLA 1y/1d: sin datos")
-            return respuesta(250, 360.0, 86400) if itv == "1d" else respuesta(130, 360.0, 900)
+        code, res, velas = self.ejecutar({"Mi lista": [["NVDA", "Nvidia"], ["FPS", "FPS"]]}, falso(fallan=("FPS",)))
+        self.assertEqual(code, 0)
+        self.assertEqual(len(res["items"]), 1)
+        self.assertEqual(len(res["failed"]), 1)
+        it = res["items"][0]
+        self.assertEqual(it["group"], "Mi lista")
+        # cierre previo = penúltimo día = 100 + 248
+        self.assertAlmostEqual(it["ch"]["1d"], round((360 / 348 - 1) * 100, 2))
+        self.assertEqual(len(velas["1D"]), 250)
+        self.assertEqual(velas["15m"][-1][4], 360.0)
+        self.assertLess(velas["15m"][0][0], velas["15m"][-1][0])  # orden cronológico
 
-        with tempfile.TemporaryDirectory() as d:
-            lista = os.path.join(d, "lista.json")
-            with open(lista, "w") as f:
-                json.dump({"indices": [["^GSPC", "S&P 500"], ["FALLA", "Falla"]]}, f)
-            with mock.patch.object(bolsa, "get", side_effect=falso), mock.patch.object(bolsa.time, "sleep"):
-                self.assertEqual(bolsa.main(["--lista", lista, "--salida", d]), 0)
-            with open(os.path.join(d, "bolsa.json")) as f:
-                res = json.load(f)
-            self.assertEqual(len(res["items"]), 1)
-            self.assertEqual(len(res["failed"]), 1)
-            it = res["items"][0]
-            self.assertEqual(it["group"], "Índices")
-            self.assertEqual(it["file"], "_GSPC")
-            # Último cierre previo = 100 + 248 = 348 → 360/348
-            self.assertAlmostEqual(it["ch"]["1d"], round((360 / 348 - 1) * 100, 2))
-            with open(os.path.join(d, "velas", "_GSPC.json")) as f:
-                v = json.load(f)
-            self.assertEqual(len(v["1D"]), 250)
-            self.assertEqual(v["15m"][-1][4], 360.0)
+    def test_sin_clave_no_hace_nada(self):
+        code, res, _ = self.ejecutar({"a": [["NVDA", "x"]]}, falso(), clave="")
+        self.assertEqual(code, 0)
+        self.assertIsNone(res)
 
-    def test_sin_datos_devuelve_error(self):
-        with tempfile.TemporaryDirectory() as d:
-            lista = os.path.join(d, "lista.json")
-            with open(lista, "w") as f:
-                json.dump({"eeuu": [["X", "X"]]}, f)
-            with mock.patch.object(bolsa, "get", side_effect=RuntimeError("x")):
-                self.assertEqual(bolsa.main(["--lista", lista, "--salida", d]), 1)
-
-
-class TestBloqueo(unittest.TestCase):
     def test_abandona_pronto_si_todo_falla(self):
         llamadas = []
-
-        def falla(sym, rng, itv, intentos=1):
+        def falla(sym, intervalo, cantidad, clave):
             llamadas.append(sym)
-            raise RuntimeError(f"{sym}: HTTP 429")
-
-        with tempfile.TemporaryDirectory() as d:
-            lista = os.path.join(d, "lista.json")
-            with open(lista, "w") as f:
-                json.dump({"a": [[f"S{i}", "x"] for i in range(10)], "b": [["Z", "z"]]}, f)
-            with mock.patch.object(bolsa, "get", side_effect=falla):
-                self.assertEqual(bolsa.main(["--lista", lista, "--salida", d]), 1)
+            raise RuntimeError(f"{sym}: You have run out of API credits")
+        code, res, _ = self.ejecutar({"a": [[f"S{i}", "x"] for i in range(10)]}, falla)
+        self.assertEqual(code, 1)
         self.assertEqual(len(llamadas), 3)
 
 

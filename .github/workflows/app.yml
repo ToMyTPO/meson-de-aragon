@@ -5,9 +5,9 @@ on:
     branches: [main]
     paths: ["app/**", "alertas/bolsa.py", "bolsa.json", ".github/workflows/app.yml"]
   schedule:
-    # Datos de bolsa cada 15 min en horario de mercado (Europa + EE. UU., hora UTC), lunes a viernes
-    - cron: "*/15 7-21 * * 1-5"
-    # Una vez cada 6 horas el resto del tiempo (cierres, Asia)
+    # Bolsa cada 30 min en horario de EE. UU. (hora UTC), lunes a viernes: cabe en el plan gratis de Twelve Data
+    - cron: "*/30 13-21 * * 1-5"
+    # Cada 6 horas el resto del tiempo
     - cron: "7 */6 * * *"
   workflow_dispatch: {}
 
@@ -39,6 +39,9 @@ jobs:
         run: node --test tests/analysis.test.js
       - name: Descargar datos de bolsa
         continue-on-error: true   # si falla, la app se publica igual (la pestaña Bolsa avisa)
+        timeout-minutes: 6
+        env:
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
         run: python -m alertas.bolsa --lista bolsa.json --salida app/data
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

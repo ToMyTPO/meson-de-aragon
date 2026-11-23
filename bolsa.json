@@ -1,22 +1,15 @@
 {
-  "indices": [
-    ["^GSPC", "S&P 500"], ["^NDX", "Nasdaq 100"], ["^DJI", "Dow Jones"], ["^RUT", "Russell 2000"],
-    ["ES=F", "Futuro S&P 500"], ["NQ=F", "Futuro Nasdaq 100"], ["^VIX", "VIX (miedo)"],
-    ["^IBEX", "IBEX 35"], ["^GDAXI", "DAX"], ["^STOXX50E", "Euro Stoxx 50"], ["^FTSE", "FTSE 100"], ["^N225", "Nikkei 225"]
+  "Índices": [
+    ["SPY", "S&P 500 (ETF SPY)"]
   ],
-  "eeuu": [
-    ["AAPL", "Apple"], ["MSFT", "Microsoft"], ["NVDA", "Nvidia"], ["AMZN", "Amazon"], ["GOOGL", "Alphabet"],
-    ["META", "Meta"], ["TSLA", "Tesla"], ["AVGO", "Broadcom"], ["AMD", "AMD"], ["NFLX", "Netflix"],
-    ["PLTR", "Palantir"], ["COIN", "Coinbase"], ["MSTR", "Strategy"], ["JPM", "JPMorgan"], ["BRK-B", "Berkshire Hathaway"], ["V", "Visa"]
-  ],
-  "espana": [
-    ["SAN.MC", "Banco Santander"], ["BBVA.MC", "BBVA"], ["ITX.MC", "Inditex"], ["IBE.MC", "Iberdrola"],
-    ["TEF.MC", "Telefónica"], ["REP.MC", "Repsol"], ["CABK.MC", "CaixaBank"], ["AENA.MC", "Aena"]
-  ],
-  "materias": [
-    ["GC=F", "Oro"], ["SI=F", "Plata"], ["CL=F", "Petróleo WTI"], ["EURUSD=X", "Euro / Dólar"], ["DX-Y.NYB", "Índice dólar"]
-  ],
-  "etf": [
-    ["SPY", "SPDR S&P 500"], ["QQQ", "Invesco QQQ"], ["IBIT", "iShares Bitcoin"], ["VWCE.DE", "Vanguard FTSE All-World"]
+  "Mi lista": [
+    ["NVDA", "Nvidia"],
+    ["IREN", "IREN"],
+    ["FPS", "FPS"],
+    ["WULF", "TeraWulf"],
+    ["BFLY", "Butterfly Network"],
+    ["OUST", "Ouster"],
+    ["COHR", "Coherent"],
+    ["NBIS", "Nebius"]
   ]
 }
