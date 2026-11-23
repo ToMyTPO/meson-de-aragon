@@ -63,6 +63,7 @@ def normalizar_par_dex(p):
     cambio = p.get("priceChange") or {}
     vol = p.get("volume") or {}
     tx1h = (p.get("txns") or {}).get("h1") or {}
+    tx5m = (p.get("txns") or {}).get("m5") or {}
     creado = p.get("pairCreatedAt")
     edad_h = (time.time() * 1000 - creado) / 3_600_000 if creado else None
     return {
@@ -79,6 +80,8 @@ def normalizar_par_dex(p):
         "vol_24h": _f(vol.get("h24")),
         "liquidez": _f((p.get("liquidity") or {}).get("usd")),
         "mcap": _f(p.get("marketCap")) or _f(p.get("fdv")),
+        "compras_5m": tx5m.get("buys"),
+        "ventas_5m": tx5m.get("sells"),
         "compras_1h": tx1h.get("buys"),
         "ventas_1h": tx1h.get("sells"),
         "edad_h": edad_h,
@@ -129,6 +132,8 @@ def normalizar_coingecko(c):
         "liquidez": None,
         "mcap": _f(c.get("market_cap")),
         "rank": c.get("market_cap_rank"),
+        "compras_5m": None,
+        "ventas_5m": None,
         "compras_1h": None,
         "ventas_1h": None,
         "edad_h": None,

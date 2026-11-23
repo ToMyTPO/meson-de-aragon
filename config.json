@@ -3,10 +3,11 @@
   "enfriamiento_minutos": 60,
   "max_avisos_por_ciclo": 15,
   "archivo_estado": "estado_alertas.json",
-
   "memecoins": {
     "activo": true,
-    "cadenas": ["solana"],
+    "cadenas": [
+      "solana"
+    ],
     "filtros": {
       "liquidez_min_usd": 15000,
       "volumen_1h_min_usd": 10000,
@@ -14,31 +15,55 @@
       "mcap_max_usd": 50000000
     },
     "umbrales": {
-      "subida": {"5m": 25, "1h": 60},
-      "bajada": {"5m": -25, "1h": -40},
+      "subida": {
+        "5m": 25,
+        "1h": 60
+      },
+      "bajada": {
+        "5m": -25,
+        "1h": -40
+      },
       "volumen_x": 5,
-      "volumen_5m_min_usd": 10000
+      "volumen_5m_min_usd": 10000,
+      "senal_min": 70
     }
   },
-
   "top_coins": {
     "activo": true,
     "cantidad": 250,
     "cada_n_ciclos": 5,
     "umbrales": {
-      "subida": {"1h": 6, "24h": 20},
-      "bajada": {"1h": -6, "24h": -20}
+      "subida": {
+        "1h": 6,
+        "24h": 20
+      },
+      "bajada": {
+        "1h": -6,
+        "24h": -20
+      }
     }
   },
-
   "vigilar": {
     "tokens": [],
-    "coingecko_ids": ["bitcoin", "ethereum", "solana"],
+    "coingecko_ids": [
+      "bitcoin",
+      "ethereum",
+      "solana"
+    ],
     "umbrales": {
-      "subida": {"5m": 10, "1h": 3, "24h": 8},
-      "bajada": {"5m": -10, "1h": -3, "24h": -8},
+      "subida": {
+        "5m": 10,
+        "1h": 3,
+        "24h": 8
+      },
+      "bajada": {
+        "5m": -10,
+        "1h": -3,
+        "24h": -8
+      },
       "volumen_x": 4,
-      "volumen_5m_min_usd": 2000
+      "volumen_5m_min_usd": 2000,
+      "senal_min": 60
     }
   }
 }

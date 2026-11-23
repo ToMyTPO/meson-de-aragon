@@ -68,7 +68,7 @@
     chain: "solana", refreshSec: 30, notify: true, sound: true, cooldownMin: 60,
     up5m: 25, up1h: 60, dn5m: -25, dn1h: -40, volX: 5, vol5mMin: 10000,
     liqMin: 15000, vol1hMin: 10000, ageMinH: 1,
-    top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, apiKey: "",
+    top1h: 6, top24h: 20, stkIdx: 1.5, stk: 4, earlyMin: 70, apiKey: "",
   };
   let S = Object.assign({}, DEFAULTS, store.get("settings", {}));
   let watch = store.get("watch", []); // [{chain, address, symbol}]
@@ -194,6 +194,7 @@
         high52: x.high52, low52: x.low52, dayHigh: x.dayHigh, dayLow: x.dayLow, volume: x.volume,
         url: "https://www.tradingview.com/symbols/" + encodeURIComponent(x.symbol) + "/", mcap: null,
       };
+      t.signal = x.signal || null;
       t.flags = evaluateStk(t);
       return t;
     });
@@ -202,8 +203,37 @@
   }
 
   // ------------------------------------------------------------ reglas
+  // Señal temprana: patrones que suelen preceder a una subida fuerte (no la predicen)
+  function earlyScore(t) {
+    if ((t.liq || 0) < 15000) return [0, []];
+    let p = 0; const why = [];
+    const avg = t.vol1h ? t.vol1h / 12 : 0;
+    if (avg > 0 && t.vol5m) {
+      const acc = t.vol5m / avg;
+      if (acc >= 3) { p += 35; why.push(`volumen 5m ×${acc.toFixed(1)}`); }
+      else if (acc >= 2) { p += 25; why.push(`volumen 5m ×${acc.toFixed(1)}`); }
+    }
+    if (t.buys5m != null && t.sells5m != null && t.buys5m + t.sells5m >= 20) {
+      const r = t.buys5m / Math.max(t.sells5m, 1);
+      if (r >= 2.5) { p += 25; why.push(`compras/ventas 5m ${t.buys5m}/${t.sells5m}`); }
+      else if (r >= 1.5) { p += 20; why.push(`compras/ventas 5m ${t.buys5m}/${t.sells5m}`); }
+      if (t.buys5m + t.sells5m >= 60) p += 10;
+    }
+    if (t.ch.m5 != null && t.ch.m5 >= 3 && t.ch.m5 <= 25) { p += 15; why.push(`arrancando ${pctS(t.ch.m5)} en 5m`); }
+    if (t.ch.h1 != null && t.ch.h1 >= 0 && t.ch.h1 <= 60) p += 10;
+    if ((t.liq || 0) >= 30000) p += 10;
+    if (t.ageH != null && t.ageH >= 1 && t.ageH <= 72) p += 5;
+    let pen = 0;
+    if (t.ch.h24 != null && t.ch.h24 > 300) { pen = 40; why.push(`ya subió ${t.ch.h24.toFixed(0)}% en 24h`); }
+    else if (t.ch.h24 != null && t.ch.h24 > 100) pen = 15;
+    return [Math.max(0, Math.min(100, p) - pen), why];
+  }
+
   function evaluateDex(t) {
     const f = [];
+    const [sc, why] = earlyScore(t);
+    t.early = sc;
+    if (sc >= (isWatched(t) ? S.earlyMin - 10 : S.earlyMin)) f.push(["senal", "senal", `señal ${sc}/100: ${why.join(", ")}`]);
     const w = isWatched(t), k = w ? 0.5 : 1; // mi lista: avisa con la mitad del movimiento
     if (t.ch.m5 != null && t.ch.m5 >= S.up5m * k) f.push(["subida_5m", "subida", `+${t.ch.m5.toFixed(1)}% en 5 min`]);
     if (t.ch.h1 != null && t.ch.h1 >= S.up1h * k) f.push(["subida_1h", "subida", `+${t.ch.h1.toFixed(1)}% en 1 h`]);
@@ -227,13 +257,19 @@
   }
 
   function evaluateStk(t) {
+    const out = [];
+    if (t.signal && t.signal.score >= S.earlyMin) {
+      const day = new Date(t.time || Date.now()).toISOString().slice(0, 10);
+      out.push([`d1_${day}_senal`, "senal", `señal ${t.signal.score}/100: ${t.signal.reasons.join(", ")}`]);
+    }
     const th = t.group === "Índices" || t.group === "Materias y divisas" ? S.stkIdx : S.stk;
     const v = t.ch.d1;
-    if (v == null || Math.abs(v) < th) return [];
+    if (v == null || Math.abs(v) < th) return out;
     // Un aviso por día y por escalón (p. ej. -4%, luego -8%)
     const day = new Date(t.time || Date.now()).toISOString().slice(0, 10);
     const step = Math.floor(Math.abs(v) / th);
-    return [[`d1_${day}_${v > 0 ? "up" : "dn"}${step}`, v > 0 ? "subida" : "bajada", `${pctS(v)} hoy`]];
+    out.push([`d1_${day}_${v > 0 ? "up" : "dn"}${step}`, v > 0 ? "subida" : "bajada", `${pctS(v)} hoy`]);
+    return out;
   }
 
   function riskTags(t) {
@@ -242,6 +278,7 @@
     if (t.ageH != null && t.ageH < 24) r.push("nuevo");
     if (t.liq != null && t.liq < 25000) r.push("liq. baja");
     if (t.buys1h != null && t.sells1h != null && t.sells1h > 2 * Math.max(t.buys1h, 1)) r.push("ventas");
+    if (t.ch.h1 != null && t.ch.h1 >= 100 && ((t.liq && t.mcap && t.liq / t.mcap < 0.03) || (t.buys5m != null && t.sells5m > 1.5 * Math.max(t.buys5m, 1)))) r.push("posible inflado");
     return r;
   }
 
@@ -251,7 +288,7 @@
     if (!S.sound) return;
     try {
       audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-      const notes = type === "bajada" ? [660, 440] : type === "subida" ? [520, 880] : [700, 700];
+      const notes = type === "senal" ? [600, 800, 1000] : type === "bajada" ? [660, 440] : type === "subida" ? [520, 880] : [700, 700];
       notes.forEach((f, i) => {
         const o = audioCtx.createOscillator(), g = audioCtx.createGain();
         o.frequency.value = f; o.type = "sine";
@@ -292,9 +329,9 @@
     alerts = alerts.slice(0, 200);
     state.flashed.add(t.id);
     if (state.view !== "alerts") unseen++;
-    const icon = type === "subida" ? "🚀" : type === "bajada" ? "🔻" : "📈";
-    const title = `${icon} ${t.symbol} ${type === "subida" ? "sube" : type === "bajada" ? "cae" : "volumen"}: ${reason}`;
-    const body = `${t.name} · ${px(t)}${t.mcap ? " · MC " + usd(t.mcap) : ""}${a.risks.length ? " · ⚠️ " + a.risks.join(", ") : ""}`;
+    const icon = type === "senal" ? "⚡" : type === "subida" ? "🚀" : type === "bajada" ? "🔻" : "📈";
+    const title = type === "senal" ? `⚡ Señal temprana en ${t.symbol}` : `${icon} ${t.symbol} ${type === "subida" ? "sube" : type === "bajada" ? "cae" : "volumen"}: ${reason}`;
+    const body = `${type === "senal" ? reason + " · " : ""}${t.name} · ${px(t)}${t.mcap ? " · MC " + usd(t.mcap) : ""}${a.risks.length ? " · ⚠️ " + a.risks.join(", ") : ""}`;
     notify(title, body, t.id);
     beep(type);
     persistAlerts();
@@ -318,9 +355,10 @@
       if (type === "subida" && !tags.includes("up")) tags.push("up");
       if (type === "bajada" && !tags.includes("down")) tags.push("down");
       if (type === "volumen" && !tags.includes("vol")) tags.push("vol");
+      if (type === "senal" && !tags.includes("early")) tags.unshift("early");
     });
     const stk = t.kind === "stk";
-    const tagHtml = tags.map((x) => `<span class="tag ${x}">${x === "up" ? (stk ? "sube" : "pump") : x === "down" ? (stk ? "cae" : "dump") : "vol"}</span>`).join("")
+    const tagHtml = tags.map((x) => `<span class="tag ${x}">${x === "early" ? "⚡ señal" : x === "up" ? (stk ? "sube" : "pump") : x === "down" ? (stk ? "cae" : "dump") : "vol"}</span>`).join("")
       + riskTags(t).map((r) => `<span class="tag risk">${esc(r)}</span>`).join("");
     const pressure = t.buys1h != null && t.sells1h != null && t.buys1h + t.sells1h > 0
       ? `<div class="pbar"><i style="width:${(100 * t.buys1h / (t.buys1h + t.sells1h)).toFixed(0)}%"></i></div>` : "";
@@ -347,9 +385,10 @@
     if (f === "up") list = list.filter((t) => (t.ch.h1 ?? 0) > 0);
     if (f === "down") list = list.filter((t) => (t.ch.h1 ?? 0) < 0);
     if (f === "alert") list = list.filter((t) => t.flags.length);
+    if (f === "early") list = list.filter((t) => (t.early || 0) >= S.earlyMin - 20).sort((a, b) => b.early - a.early);
     if (f === "watch") list = list.filter(isWatched);
     const sort = $("#sort").value;
-    const key = { m5: (t) => t.ch.m5, h1: (t) => t.ch.h1, h24: (t) => t.ch.h24, vol: (t) => t.vol1h, drop: (t) => -(t.ch.h1 ?? 0), new: (t) => -(t.ageH ?? 1e9) }[sort];
+    const key = { early: (t) => t.early, m5: (t) => t.ch.m5, h1: (t) => t.ch.h1, h24: (t) => t.ch.h24, vol: (t) => t.vol1h, drop: (t) => -(t.ch.h1 ?? 0), new: (t) => -(t.ageH ?? 1e9) }[sort];
     list.sort((a, b) => (key(b) ?? -1e12) - (key(a) ?? -1e12));
     $("#radarList").innerHTML = list.length ? list.slice(0, 120).map(tokenRow).join("")
       : `<div class="empty">${state.lastErr ? "No hay datos: " + esc(state.lastErr) : f === "watch" ? "Tu lista está vacía. Abre un token y pulsa ★, o pega un contrato abajo." : "Ningún token cumple los filtros ahora mismo."}</div>`;
@@ -690,7 +729,7 @@ ${JSON.stringify(data)}`;
   }
 
   // ------------------------------------------------------------ ajustes UI
-  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "stkIdx", "stk", "apiKey"];
+  const FIELDS = ["notify", "sound", "refresh", "cooldown", "up5m", "up1h", "dn5m", "dn1h", "volX", "liqMin", "vol1hMin", "ageMinH", "top1h", "top24h", "stkIdx", "stk", "earlyMin", "apiKey"];
   const MAP = { refresh: "refreshSec", cooldown: "cooldownMin" };
   function fillSettings() {
     FIELDS.forEach((f) => {

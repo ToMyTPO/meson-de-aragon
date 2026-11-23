@@ -37,12 +37,26 @@ jobs:
           python-version: "3.12"
       - name: Pruebas del motor de análisis
         run: node --test tests/analysis.test.js
+      - name: Restaurar estado de avisos de bolsa
+        uses: actions/cache/restore@v4
+        with:
+          path: estado_bolsa.json
+          key: bolsa-${{ github.run_id }}
+          restore-keys: bolsa-
       - name: Descargar datos de bolsa
         continue-on-error: true   # si falla, la app se publica igual (la pestaña Bolsa avisa)
         timeout-minutes: 6
         env:
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m alertas.bolsa --lista bolsa.json --salida app/data
+      - name: Guardar estado de avisos de bolsa
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: estado_bolsa.json
+          key: bolsa-${{ github.run_id }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

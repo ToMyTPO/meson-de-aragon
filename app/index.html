@@ -37,6 +37,7 @@
         <option value="bsc">BNB Chain</option>
       </select>
       <select id="sort" aria-label="Ordenar">
+        <option value="early">⚡ Señal temprana</option>
         <option value="m5">Mayor cambio 5m</option>
         <option value="h1">Mayor cambio 1h</option>
         <option value="h24">Mayor cambio 24h</option>
@@ -49,6 +50,7 @@
       <button class="chip on" data-f="all">Todos</button>
       <button class="chip" data-f="up">Subiendo</button>
       <button class="chip" data-f="down">Cayendo</button>
+      <button class="chip" data-f="early">⚡ Señales</button>
       <button class="chip" data-f="alert">Con alerta</button>
       <button class="chip" data-f="watch">★ Mi lista</button>
     </div>
@@ -121,6 +123,11 @@
         <label class="row"><span>Caída en 5 min ≤ %</span><input type="number" id="s-dn5m"></label>
         <label class="row"><span>Caída en 1 h ≤ %</span><input type="number" id="s-dn1h"></label>
         <label class="row"><span>Volumen 5 min × sobre lo normal</span><input type="number" id="s-volX" step="0.5"></label>
+      </fieldset>
+      <fieldset>
+        <legend>⚡ Señal temprana</legend>
+        <p class="hint">Avisa cuando un token o acción muestra patrones que suelen preceder a una subida fuerte (volumen acelerando, más compras que ventas, ruptura de máximos) antes de que haya subido mucho. Muchas señales fallan.</p>
+        <label class="row"><span>Puntuación mínima (0–100)</span><input type="number" id="s-earlyMin" min="30" max="100"></label>
       </fieldset>
       <fieldset>
         <legend>Memecoins: filtros anti-basura</legend>
