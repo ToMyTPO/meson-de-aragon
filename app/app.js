@@ -36,7 +36,7 @@
     const d = Math.abs(x) >= 1000 ? 0 : Math.abs(x) >= 10 ? 2 : 4;
     const n = x.toLocaleString("es-ES", { minimumFractionDigits: d, maximumFractionDigits: d });
     const sym = CUR[t.currency];
-    if (/=X$/.test(t.ticker || "") || /^\^/.test(t.ticker || "") || !t.currency) return n; // índices y divisas sin símbolo
+    if (t.group === "Índices" || /=X$/.test(t.ticker || "") || /^\^/.test(t.ticker || "") || !t.currency) return n; // índices y divisas sin símbolo
     return sym === "$" ? "$" + n : sym ? n + " " + sym : n + " " + t.currency;
   };
   const pctS = (x) => (x == null ? "–" : (x >= 0 ? "+" : "") + x.toFixed(Math.abs(x) >= 100 ? 0 : 1) + "%");

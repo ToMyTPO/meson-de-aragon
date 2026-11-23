@@ -65,6 +65,17 @@ class TestBolsa(unittest.TestCase):
         self.assertEqual(velas["15m"][-1][4], 360.0)
         self.assertLess(velas["15m"][0][0], velas["15m"][-1][0])  # orden cronológico
 
+    def test_usa_alternativa_si_el_indice_falla(self):
+        base = falso()
+        def get(sym, intervalo, cantidad, clave):
+            if sym in ("SPX", "GSPC"):
+                raise RuntimeError(f"{sym} {intervalo}: requires a paid plan")
+            return base(sym, intervalo, cantidad, clave)
+        code, res, _ = self.ejecutar({"Índices": [["SPX", "S&P 500", ["GSPC", "SPY"]]]}, get)
+        it = res["items"][0]
+        self.assertEqual((it["symbol"], it["source_symbol"], it["file"]), ("SPX", "SPY", "SPX"))
+        self.assertIn("vía SPY", it["name"])
+
     def test_sin_clave_no_hace_nada(self):
         code, res, _ = self.ejecutar({"a": [["NVDA", "x"]]}, falso(), clave="")
         self.assertEqual(code, 0)
