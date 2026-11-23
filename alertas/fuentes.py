@@ -110,7 +110,18 @@ def normalizar_par_dex(p):
         "ventas_1h": tx1h.get("sells"),
         "edad_h": edad_h,
         "url": p.get("url"),
+        "par": p.get("pairAddress"),
     }
+
+
+def velas_5m(cadena, par, limite=100):
+    """Velas de 5 min de GeckoTerminal: [[t, o, h, l, c, v], ...] en orden cronológico."""
+    red = GT_RED.get(cadena)
+    if not red or not par:
+        return []
+    datos = get_json(f"{GT}/networks/{red}/pools/{par}/ohlcv/minute?aggregate=5&limit={limite}&currency=usd", retries=1)
+    lista = ((datos.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or []
+    return sorted([[int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in lista])
 
 
 # ---------------------------------------------------------------- CoinGecko

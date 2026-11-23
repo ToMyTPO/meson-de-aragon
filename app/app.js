@@ -237,9 +237,28 @@
       } catch { /* sin velas */ }
     }
   }
-  async function checkWatchTurns() {
+  // Filtro rápido sobre TODOS los memecoins (sin peticiones extra): venía cayendo y ahora sube con compras
+  function quickTurn(t) {
+    const fell = (t.ch.h1 != null && t.ch.h1 < 0) || (t.ch.h6 != null && t.ch.h6 < -5);
+    if (!fell || t.ch.m5 == null || t.ch.m5 < 1.5) return 0;
+    let s = t.ch.m5;
+    if (t.buys5m != null && t.sells5m != null) {
+      if (t.buys5m <= t.sells5m * 1.2) return 0;
+      s += 10 * Math.min(3, t.buys5m / Math.max(1, t.sells5m));
+    }
+    if (t.vol5m && t.vol1h) s += 10 * Math.min(3, t.vol5m / (t.vol1h / 12));
+    return s;
+  }
+  const turnChecked = {}; // id -> última comprobación con velas
+  async function checkMemeTurns() {
     if (!S.turnOn) return;
-    for (const t of state.radar.filter((x) => x.kind === "dex" && isWatched(x)).slice(0, 8)) {
+    const now = Date.now();
+    const watched = state.radar.filter((x) => x.kind === "dex" && isWatched(x)).slice(0, 3);
+    // Los 5 mejores candidatos de todo el radar que no se hayan comprobado en 10 min
+    const cands = state.radar.filter((x) => x.kind === "dex" && !isWatched(x) && (!turnChecked[x.id] || now - turnChecked[x.id] > 600000))
+      .map((x) => [x, quickTurn(x)]).filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([x]) => x);
+    for (const t of watched.concat(cands)) {
+      turnChecked[t.id] = now;
       const net = GT_NET[t.chain];
       if (!net || !t.pair) continue;
       try {
@@ -514,7 +533,7 @@
       const every = (sec) => cycle % Math.max(1, Math.round(sec / Math.max(5, S.refreshSec))) === 0;
       if (every(60)) await refreshTop().catch((e) => console.warn("CoinGecko", e));
       if (every(60)) await refreshStocks().catch((e) => { state.stocksErr = e.message; });
-      if (every(60)) { await checkStockTurns(); await checkWatchTurns(); }
+      if (every(60)) { await checkStockTurns(); await checkMemeTurns(); }
       state.lastOk = Date.now(); state.lastErr = null;
     } catch (e) {
       state.lastErr = e.message || String(e);
