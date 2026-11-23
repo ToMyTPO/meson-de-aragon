@@ -58,5 +58,22 @@ class TestBolsa(unittest.TestCase):
                 self.assertEqual(bolsa.main(["--lista", lista, "--salida", d]), 1)
 
 
+class TestBloqueo(unittest.TestCase):
+    def test_abandona_pronto_si_todo_falla(self):
+        llamadas = []
+
+        def falla(sym, rng, itv, intentos=1):
+            llamadas.append(sym)
+            raise RuntimeError(f"{sym}: HTTP 429")
+
+        with tempfile.TemporaryDirectory() as d:
+            lista = os.path.join(d, "lista.json")
+            with open(lista, "w") as f:
+                json.dump({"a": [[f"S{i}", "x"] for i in range(10)], "b": [["Z", "z"]]}, f)
+            with mock.patch.object(bolsa, "get", side_effect=falla):
+                self.assertEqual(bolsa.main(["--lista", lista, "--salida", d]), 1)
+        self.assertEqual(len(llamadas), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
