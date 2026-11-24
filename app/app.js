@@ -239,7 +239,7 @@
     quotesBusy = true;
     try {
       for (const t of state.stocks) {
-        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(t.src || t.ticker)}`, { headers: { "X-Finnhub-Token": S.finnhubKey } });
+        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(t.src || t.ticker)}&token=${encodeURIComponent(S.finnhubKey)}`);
         if (r.status === 401 || r.status === 403) { quotesErr = "La clave de Finnhub no es válida"; break; }
         if (r.status === 429) { quotesErr = "Límite de Finnhub alcanzado; reintento en un momento"; break; }
         const q = await r.json().catch(() => null);
@@ -550,7 +550,9 @@
   function renderStocks() {
     $("#liveKeyForm").hidden = !!S.finnhubKey;
     const mk = usMarket();
+    const stale = mk.open && !S.finnhubKey && state.stocksUpdated && Date.now() - state.stocksUpdated > 75 * 60000;
     $("#marketState").innerHTML = mk.open ? `Wall Street: <b class="open">abierto</b>`
+      + (stale ? ` · <b class="closed">datos con retraso (${ago(state.stocksUpdated)})</b>: activa la clave de Finnhub para tiempo real` : "")
       : `Wall Street: <b class="closed">cerrado</b>${mk.mins != null ? ` · abre en ${Math.floor(mk.mins / 60)} h ${mk.mins % 60} min (15:30 en España)` : " · se muestra el último cierre"}`;
     const STK_GROUPS = ["Todos", ...new Set(state.stocks.map((t) => t.group))];
     $("#stkGroups").innerHTML = STK_GROUPS.map((g) => `<button class="chip${g === state.stkGroup ? " on" : ""}" data-g="${esc(g)}">${esc(g)}</button>`).join("");
@@ -1045,7 +1047,7 @@ ${JSON.stringify(data)}`;
   // ------------------------------------------------------------ arranque
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => { });
   bind();
-  try { $("#appVersion").textContent = "Versión de la app: 12"; } catch { }
+  try { $("#appVersion").textContent = "Versión de la app: 13"; } catch { }
   renderAll();
   tick();
   schedule();
