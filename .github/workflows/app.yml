@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 10
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -61,5 +61,15 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app
+      # GitHub a veces no encuentra el artefacto recién subido: esperar y reintentar
+      - name: Esperar a que el artefacto esté disponible
+        run: sleep 10
       - id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - name: Reintentar publicación
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+      - id: deployment2
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
