@@ -1,5 +1,5 @@
 /* Service worker: permite instalar la app y mostrar notificaciones. Los datos de mercado nunca se cachean. */
-const CACHE = "bv-v13";
+const CACHE = "bv-v14";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "analysis.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -15,11 +15,12 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== location.origin) return; // APIs: siempre a la red
   // Red primero para tener siempre la última versión; caché si no hay conexión
   e.respondWith(
-    fetch(e.request, { cache: "no-cache" }).then((r) => {  // siempre la última versión publicada
+    // Petición por URL (no reutilizar e.request con opciones: Safari puede rechazarlo en navegaciones)
+    fetch(e.request.url, { cache: "no-cache", credentials: "same-origin" }).then((r) => {
       const copy = r.clone();
       caches.open(CACHE).then((c) => c.put(e.request, copy));
       return r;
-    }).catch(() => caches.match(e.request))
+    }).catch(() => caches.match(e.request).then((m) => m || (e.request.mode === "navigate" ? caches.match("index.html") : undefined)))
   );
 });
 
