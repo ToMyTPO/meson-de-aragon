@@ -7,6 +7,7 @@
     gt: "https://api.geckoterminal.com/api/v2",
     cg: "https://api.coingecko.com/api/v3",
     claude: "https://api.anthropic.com/v1/messages",
+    bn: "https://api.binance.com/api/v3",
   };
   const GT_NET = { solana: "solana", ethereum: "eth", bsc: "bsc", base: "base" };
   // Monedas base de los pares (no son memecoins): SOL envuelto, USDC, USDT, WETH…
@@ -52,7 +53,7 @@
   const safeUrl = (u) => (typeof u === "string" && /^https:\/\//.test(u) ? u : null);
 
   // Límite de peticiones por fuente: GeckoTerminal permite ~30/min en su API pública
-  const LIMITS = { "api.geckoterminal.com": 25, "api.dexscreener.com": 250, "api.coingecko.com": 20 };
+  const LIMITS = { "api.geckoterminal.com": 25, "api.dexscreener.com": 250, "api.coingecko.com": 20, "api.binance.com": 300 };
   const hits = {}, backoff = {}, srcErr = {};
   function hostOf(u) { try { return new URL(u, location.href).host; } catch { return ""; } }
   async function throttle(host) {
@@ -207,12 +208,49 @@
   }
 
   // ------------------------------------------------------------ datos: top coins
+  // Top cripto: CoinGecko (ranking y market cap). Si falla en esta conexión, precios de Binance.
+  const STABLE = new Set(["USDT", "USDC", "FDUSD", "TUSD", "DAI", "USDP", "BUSD", "EUR", "USDE", "PYUSD", "USD1", "XUSD"]);
   async function refreshTop() {
+    try { await refreshTopCG(); state.topSource = "CoinGecko"; }
+    catch (e) { await refreshTopBinance(); state.topSource = "Binance (CoinGecko no responde en tu conexión)"; }
+  }
+  async function refreshTopBinance() {
+    const cached = store.get("topMeta", null); // último top conocido de CoinGecko
+    let syms;
+    if (cached && cached.length) syms = cached.filter((c) => !STABLE.has(c.symbol)).map((c) => c.symbol + "USDT");
+    const q = syms ? `&symbols=${encodeURIComponent(JSON.stringify(syms))}` : "";
+    let data;
+    try { data = await getJSON(`${API.bn}/ticker/24hr?type=MINI${q}`); }
+    catch (e) { if (!q) throw e; data = await getJSON(`${API.bn}/ticker/24hr?type=MINI`); syms = null; }
+    const bySym = new Map(data.map((x) => [x.symbol, x]));
+    let list;
+    if (syms && cached) {
+      list = cached.filter((c) => bySym.has(c.symbol + "USDT")).map((c) => ({ meta: c, tk: bySym.get(c.symbol + "USDT") }));
+    } else {
+      list = data.filter((x) => x.symbol.endsWith("USDT") && !/(UP|DOWN|BULL|BEAR)USDT$/.test(x.symbol) && !STABLE.has(x.symbol.slice(0, -4)))
+        .sort((a, b) => +b.quoteVolume - +a.quoteVolume).slice(0, 100)
+        .map((tk, i) => ({ meta: { symbol: tk.symbol.slice(0, -4), name: tk.symbol.slice(0, -4), rank: i + 1 }, tk }));
+    }
+    state.top = list.map(({ meta, tk }) => {
+      const price = +tk.lastPrice, open = +tk.openPrice;
+      const t = {
+        kind: "cg", id: "cg:" + (meta.id || meta.symbol), cgId: meta.id || null, bn: meta.symbol + "USDT", name: meta.name, symbol: meta.symbol,
+        price, mcap: meta.mcap && meta.price ? meta.mcap * price / meta.price : null, rank: meta.rank, vol24h: +tk.quoteVolume,
+        ch: { h1: null, h24: open ? (price / open - 1) * 100 : null, d7: null }, img: meta.img || null, spark: [],
+        url: `https://www.binance.com/es/trade/${meta.symbol}_USDT`, high24: +tk.highPrice, low24: +tk.lowPrice, ath: null, athPct: null,
+      };
+      t.flags = evaluateTop(t);
+      return t;
+    });
+    state.top.forEach((t) => t.flags.length && fireAlerts(t, t.flags));
+  }
+  async function refreshTopCG() {
     const url = `${API.cg}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=1h,24h,7d`;
     const data = await getJSON(url);
+    store.set("topMeta", data.map((c) => ({ id: c.id, symbol: (c.symbol || "").toUpperCase(), name: c.name, rank: c.market_cap_rank, img: safeUrl(c.image), mcap: num(c.market_cap), price: num(c.current_price) })));
     state.top = data.map((c) => {
       const t = {
-        kind: "cg", id: "cg:" + c.id, cgId: c.id, name: c.name, symbol: (c.symbol || "").toUpperCase(),
+        kind: "cg", id: "cg:" + c.id, cgId: c.id, bn: (c.symbol || "").toUpperCase() + "USDT", name: c.name, symbol: (c.symbol || "").toUpperCase(),
         price: num(c.current_price), mcap: num(c.market_cap), rank: c.market_cap_rank, vol24h: num(c.total_volume),
         ch: { h1: num(c.price_change_percentage_1h_in_currency), h24: num(c.price_change_percentage_24h_in_currency), d7: num(c.price_change_percentage_7d_in_currency) },
         img: safeUrl(c.image), spark: c.sparkline_in_7d?.price || [],
@@ -666,7 +704,8 @@
 
   // ------------------------------------------------------------ detalle
   const TF_DEX = [["1m", "minute", 1], ["5m", "minute", 5], ["15m", "minute", 15], ["1h", "hour", 1], ["4h", "hour", 4], ["1D", "day", 1]];
-  const TF_CG = [["30m", 1], ["4h", 14], ["4D", 180]];
+  // [etiqueta, intervalo Binance, días de respaldo en CoinGecko]
+  const TF_CG = [["15m", "15m", 1], ["1h", "1h", 1], ["4h", "4h", 14], ["1D", "1d", 180]];
   const TF_STK = ["15m", "1h", "1D"];
 
   function findToken(id) {
@@ -675,7 +714,7 @@
 
   async function openDetail(t) {
     state.detail = t;
-    state.tf = t.kind === "dex" ? "5m" : t.kind === "stk" ? "1D" : "30m";
+    state.tf = t.kind === "dex" ? "5m" : t.kind === "stk" ? "1D" : "15m";
     $("#sheet").hidden = false;
     document.body.style.overflow = "hidden";
     $("#aiOut").hidden = true; $("#aiOut").textContent = "";
@@ -749,7 +788,14 @@
       }
       return list.sort((a, b) => a.time - b.time);
     }
-    const [, days] = TF_CG.find((x) => x[0] === tf);
+    const [, itv, days] = TF_CG.find((x) => x[0] === tf) || TF_CG[0];
+    if (t.bn && !STABLE.has(t.symbol)) {
+      try {
+        const k = await getJSON(`${API.bn}/klines?symbol=${encodeURIComponent(t.bn)}&interval=${itv}&limit=300`);
+        if (Array.isArray(k) && k.length) return k.map((x) => ({ time: Math.floor(x[0] / 1000), open: +x[1], high: +x[2], low: +x[3], close: +x[4], volume: +x[5] }));
+      } catch { /* sin par en Binance: CoinGecko */ }
+    }
+    if (!t.cgId) throw new Error("velas no disponibles");
     const list = await getJSON(`${API.cg}/coins/${encodeURIComponent(t.cgId)}/ohlc?vs_currency=usd&days=${days}`);
     const seen = new Set();
     return list.map((k) => ({ time: Math.floor(k[0] / 1000), open: k[1], high: k[2], low: k[3], close: k[4], volume: 0 }))
@@ -763,7 +809,15 @@
     $("#reading").innerHTML = "";
     let candles;
     try { candles = await fetchCandles(t, tf); }
-    catch (e) { box.innerHTML = `<div class="empty">No se pudieron cargar las velas (${esc(e.message)}).${t.url ? ` <a href="${esc(t.url)}" target="_blank" rel="noopener">Ver gráfico externo</a>` : ""}</div>`; return; }
+    catch (e) {
+      if (t.kind === "dex" && t.pair && t.chain) {
+        const itv = { "1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1D": "1D" }[tf] || 5;
+        box.innerHTML = `<iframe title="Gráfico" style="width:100%;height:100%;border:0" loading="lazy" src="https://dexscreener.com/${encodeURIComponent(t.chain)}/${encodeURIComponent(t.pair)}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=${itv}"></iframe>`;
+        $("#reading").innerHTML = `<p class="muted">GeckoTerminal no responde en tu conexión ahora mismo (${esc(e.message)}). Se muestra el gráfico en vivo de DexScreener; la lectura técnica automática volverá cuando GeckoTerminal responda.</p>`;
+        return;
+      }
+      box.innerHTML = `<div class="empty">No se pudieron cargar las velas (${esc(e.message)}).${t.url ? ` <a href="${esc(t.url)}" target="_blank" rel="noopener">Ver gráfico externo</a>` : ""}</div>`; return;
+    }
     if (state.detail !== t || state.tf !== tf) return;
     if (!candles.length) { box.innerHTML = `<div class="empty">Sin velas para este periodo.</div>`; return; }
     state.candles = candles;
@@ -787,6 +841,7 @@
       rightPriceScale: { borderColor: c("--line") },
       timeScale: { borderColor: c("--line"), timeVisible: true, secondsVisible: false },
       crosshair: { mode: 0 },
+      localization: { locale: "es-ES" },
     });
     const prec = candles[candles.length - 1].close;
     const decimals = prec >= 1 ? 2 : Math.min(10, Math.ceil(-Math.log10(prec)) + 3);
@@ -1080,7 +1135,7 @@ ${JSON.stringify(data)}`;
   // ------------------------------------------------------------ arranque
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => { });
   bind();
-  try { $("#appVersion").textContent = "Versión de la app: 14"; } catch { }
+  try { $("#appVersion").textContent = "Versión de la app: 15"; } catch { }
   renderAll();
   tick();
   schedule();
