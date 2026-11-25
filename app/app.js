@@ -51,12 +51,37 @@
   const age = (h) => (h == null ? "?" : h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} d`);
   const safeUrl = (u) => (typeof u === "string" && /^https:\/\//.test(u) ? u : null);
 
+  // Límite de peticiones por fuente: GeckoTerminal permite ~30/min en su API pública
+  const LIMITS = { "api.geckoterminal.com": 25, "api.dexscreener.com": 250, "api.coingecko.com": 20 };
+  const hits = {}, backoff = {}, srcErr = {};
+  function hostOf(u) { try { return new URL(u, location.href).host; } catch { return ""; } }
+  async function throttle(host) {
+    const lim = LIMITS[host];
+    if (!lim) return;
+    for (;;) {
+      if (backoff[host] && Date.now() < backoff[host]) throw new Error(`${host.replace("api.", "")} limita peticiones; reintento en ${Math.ceil((backoff[host] - Date.now()) / 1000)} s`);
+      const now = Date.now();
+      hits[host] = (hits[host] || []).filter((t) => now - t < 60000);
+      if (hits[host].length < lim) { hits[host].push(now); return; }
+      await new Promise((ok) => setTimeout(ok, 60000 - (now - hits[host][0]) + 50));
+    }
+  }
   async function getJSON(url, opts = {}) {
+    const host = hostOf(url);
+    await throttle(host);
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), opts.timeout || 15000);
     try {
-      const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      let r;
+      try { r = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } }); }
+      catch (e) { srcErr[host] = { msg: "sin conexión", at: Date.now() }; throw new Error(`${host.replace("api.", "")}: sin conexión`); }
+      if (r.status === 429) {
+        backoff[host] = Date.now() + 60000;
+        srcErr[host] = { msg: "límite de peticiones (429), pausa de 60 s", at: Date.now() };
+        throw new Error(`${host.replace("api.", "")} limita peticiones (429); reintento en 60 s`);
+      }
+      if (!r.ok) { srcErr[host] = { msg: `HTTP ${r.status}`, at: Date.now() }; throw new Error(`${host.replace("api.", "")}: HTTP ${r.status}`); }
+      delete srcErr[host];
       return await r.json();
     } finally { clearTimeout(t); }
   }
@@ -121,15 +146,20 @@
     const net = GT_NET[chain];
     if (net) {
       // Tendencias (2 páginas) y pools recién creados de GeckoTerminal
-      const gts = await Promise.allSettled(["trending_pools?page=1", "trending_pools?page=2", "new_pools?page=1"]
-        .map((q) => getJSON(`${API.gt}/networks/${net}/${q}`)));
+      const useGT = Date.now() - (discover.gtAt || 0) > 60000;
+      if (useGT) discover.gtAt = Date.now();
+      const gts = useGT ? await Promise.allSettled(["trending_pools?page=1", "new_pools?page=1"]
+        .map((q) => getJSON(`${API.gt}/networks/${net}/${q}`))) : [];
+      if (!useGT) (discover.gtCache || []).forEach((a) => set.add(a));
+      const gtAddrs = [];
       gts.forEach((r) => {
         if (r.status !== "fulfilled") return;
         (r.value.data || []).forEach((p) => {
           const id = p.relationships?.base_token?.data?.id;
-          if (id) set.add(id.slice(id.indexOf("_") + 1));
+          if (id) { const a = id.slice(id.indexOf("_") + 1); set.add(a); gtAddrs.push(a); }
         });
       });
+      if (useGT && gtAddrs.length) discover.gtCache = gtAddrs;
     }
     if (!set.size && res.every((r) => r.status === "rejected")) throw new Error("DexScreener no responde");
     return [...set].filter((a) => !QUOTES.has(a) && !QUOTES.has(a.toLowerCase())).slice(0, 180);
@@ -320,7 +350,7 @@
     const watched = state.radar.filter((x) => x.kind === "dex" && isWatched(x)).slice(0, 3);
     // Los 5 mejores candidatos de todo el radar que no se hayan comprobado en 10 min
     const cands = state.radar.filter((x) => x.kind === "dex" && !isWatched(x) && (!turnChecked[x.id] || now - turnChecked[x.id] > 600000))
-      .map((x) => [x, quickTurn(x)]).filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([x]) => x);
+      .map((x) => [x, quickTurn(x)]).filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([x]) => x);
     for (const t of watched.concat(cands)) {
       turnChecked[t.id] = now;
       const net = GT_NET[t.chain];
@@ -593,7 +623,10 @@
     const el = $("#live");
     el.classList.toggle("ok", !state.lastErr && !!state.lastOk);
     el.classList.toggle("err", !!state.lastErr);
-    $("#liveText").textContent = state.lastErr ? "sin conexión" : state.lastOk ? `en vivo · ${ago(state.lastOk)}` : "conectando…";
+    const bad = Object.entries(srcErr).filter(([h, v]) => h !== location.host && Date.now() - v.at < 120000);
+    $("#liveText").textContent = state.lastErr ? "sin datos" : bad.length ? `en vivo · ${bad.length} ${bad.length === 1 ? "fuente" : "fuentes"} con problemas` : state.lastOk ? `en vivo · ${ago(state.lastOk)}` : "conectando…";
+    const diag = $("#diag");
+    if (diag) diag.textContent = bad.length ? "Problemas: " + bad.map(([h, v]) => `${h.replace("api.", "")}: ${v.msg} (${ago(v.at)})`).join(" · ") : "Todas las fuentes responden.";
   }
 
   function renderAll() {
@@ -804,7 +837,7 @@
     finally { busyLive = false; }
   }
   let busyLive = false;
-  setInterval(() => { if (state.detail && state.detail.kind !== "stk") liveCandles(); }, 15000);
+  setInterval(() => { if (state.detail && state.detail.kind !== "stk") liveCandles(); }, 30000);
 
   function renderReading(r, tf) {
     if (!r) { $("#reading").innerHTML = `<p class="muted">Pocas velas para estimar (mínimo 20). Prueba otra temporalidad.</p>`; return; }
@@ -1047,7 +1080,7 @@ ${JSON.stringify(data)}`;
   // ------------------------------------------------------------ arranque
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => { });
   bind();
-  try { $("#appVersion").textContent = "Versión de la app: 13"; } catch { }
+  try { $("#appVersion").textContent = "Versión de la app: 14"; } catch { }
   renderAll();
   tick();
   schedule();
